@@ -153,8 +153,7 @@ export default function Profile() {
   const [videoOutput, setVideoOutput] = useState<string | null>(null);
 
   // --- Multilingual Resume Help ---
-  type LangCode = "en" | "hi" | "gu";
-  const [chatLang, setChatLang] = useState<LangCode>("en");
+  const [chatLang, setChatLang] = useState<"en" | "hi" | "gu">("en");
   const [mlQuestion, setMlQuestion] = useState("");
   const [mlLoading, setMlLoading] = useState(false);
   const [mlAnswer, setMlAnswer] = useState<string | null>(null);
@@ -163,6 +162,17 @@ export default function Profile() {
   const [interviewLoading, setInterviewLoading] = useState(false);
   const [questionCount, setQuestionCount] = useState<number>(10);
   const [interviewQs, setInterviewQs] = useState<string[] | null>(null);
+  // AI Mode constants
+  const AI_MODES = {
+    MOCK_INTERVIEW: "MockInterview",
+    PROJECT_REWRITER: "ProjectRewriter",
+    VIDEO_SCRIPT: "VideoScript",
+    RESUME_ASSISTANT: "ResumeAssistant",
+  };
+  const handleLangChange = (lang: "en" | "hi" | "gu") => {
+    setChatLang(lang);
+    localStorage.setItem("chatLang", lang);
+  };
 
   /* ---------- bootstrap ---------- */
   useEffect(() => {
@@ -302,7 +312,7 @@ export default function Profile() {
       atsOptimization: data?.atsOptimization ?? data?.AtsOptimization ?? null,
     };
   }
-  
+
   // Preferred: summary endpoint. Fallback to old endpoints when 404/not present.
   async function loadSeekerSummaryWithFallback() {
     try {
@@ -392,14 +402,14 @@ export default function Profile() {
     try {
       const { data } = await api.get("/api/recruiter/analytics", { meta: { ignoreGlobal401: true } as any });
       if (data?.jobsPostedCount != null) setJobsPostedCount(Number(data.jobsPostedCount));
-    } catch {}
+    } catch { }
 
     try {
       const { data } = await api.get("/api/recruiter/jobs", { meta: { ignoreGlobal401: true } as any });
       const list: any[] = Array.isArray(data) ? data : data?.results ?? [];
       setPostedJobs(list.slice(0, 5).map((x) => ({ title: x?.Title ?? x?.title, jobId: x?.JobId ?? x?.jobId })));
       if (jobsPostedCount == null) setJobsPostedCount(list.length);
-    } catch {}
+    } catch { }
   }
 
   /* ---------- computed ---------- */
@@ -606,7 +616,7 @@ export default function Profile() {
       alert(err?.message || "Failed to update skills");
     }
   }
-  
+
   async function askAIToWriteBullets() {
     if (selectedSuggestions.length === 0) {
       alert("Select at least one suggestion.");
@@ -717,91 +727,91 @@ export default function Profile() {
 
   // Mock Interview questions
   async function generateInterviewQs() {
-    if (!seeker?.resumeFile) {
-      alert("Please upload a resume first.");
-      return;
-    }
-    setInterviewLoading(true);
-    try {
-      const prompt =
-        `Generate ${questionCount} realistic interview questions based on my resume. ` +
-        `Mix behavioral and technical where relevant. Number each question only.`;
-
-      const { data } = await api.post("/api/resume/chat", {
-        Question: prompt,
-        Mode: "MockInterview", // adjust if your backend expects a different mode key
-      });
-
-      let list: string[] = [];
-      if (Array.isArray(data?.questions)) list = data.questions;
-      else {
-        const raw = (data?.shortAnswer || data?.answer || "") as string;
-        list = raw
-          .replace(/<\/?br\/?>/gi, "\n")
-          .split(/\n+/)
-          .map((s) => s.replace(/^\d+[\).\s-]?\s*/, "").trim())
-          .filter(Boolean);
-      }
-      const trimmed = list.slice(0, questionCount);
-      setInterviewQs(trimmed.length ? trimmed : ["No questions returned"]);
-    } catch (err: any) {
-      alert(err?.response?.data?.message || err?.message || "Failed to generate interview questions");
-    } finally {
-      setInterviewLoading(false);
-    }
+  if (!seeker?.resumeFile) {
+    alert("Please upload a resume first.");
+    return;
   }
+  setInterviewLoading(true);
+  try {
+    const prompt =
+      `Generate ${questionCount} realistic interview questions based on my resume. ` +
+      `Mix behavioral and technical where relevant. Number each question only.`;
+
+    const { data } = await api.post("/api/resume/chat", {
+      Question: prompt,
+      Mode: AI_MODES.MOCK_INTERVIEW,
+    });
+
+    let list: string[] = [];
+    if (Array.isArray(data?.questions)) list = data.questions;
+    else {
+      const raw = (data?.shortAnswer || data?.answer || "") as string;
+      list = raw
+        .replace(/<\/?br\/?>/gi, "\n")
+        .split(/\n+/)
+        .map((s) => s.replace(/^\d+[\).\s-]?\s*/, "").trim())
+        .filter(Boolean);
+    }
+    const trimmed = list.slice(0, questionCount);
+    setInterviewQs(trimmed.length ? trimmed : ["No questions returned"]);
+  } catch (err: any) {
+    alert(err?.response?.data?.message || err?.message || "Failed to generate interview questions");
+  } finally {
+    setInterviewLoading(false);
+  }
+}
 
   // Project Rewriter
-  async function generateProjectRewrite() {
-    if (!projectText.trim()) {
-      alert("Paste a project/experience description first.");
-      return;
-    }
-    setRewriteLoading(true);
-    try {
-      const prompt =
-        "Rewrite this project for a resume using strong action verbs, impact, and metrics. " +
-        "Keep to 4–6 bullet points, 18 words max each.\n\n" + projectText.trim();
-
-      const { data } = await api.post("/api/resume/chat", {
-        Question: prompt,
-        Mode: "ProjectRewriter", // adjust as needed for your backend
-      });
-
-      const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
-      setRewriteOutput(String(text));
-    } catch (err: any) {
-      alert(err?.response?.data?.message || err?.message || "Failed to rewrite project");
-    } finally {
-      setRewriteLoading(false);
-    }
+async function generateProjectRewrite() {
+  if (!projectText.trim()) {
+    alert("Paste a project/experience description first.");
+    return;
   }
+  setRewriteLoading(true);
+  try {
+    const prompt =
+      "Rewrite this project for a resume using strong action verbs, impact, and metrics. " +
+      "Keep to 4–6 bullet points, 18 words max each.\n\n" + projectText.trim();
 
-  // Video Resume Script
-  async function generateVideoScript() {
-    if (!projectText.trim()) {
-      alert("Paste your project/summary first.");
-      return;
-    }
-    setVideoLoading(true);
-    try {
-      const prompt =
-        "Create a concise 60–90 second video resume script with intro, 2–3 achievements, and a crisp closing CTA. " +
-        "Keep sentences short and conversational.\n\n" + projectText.trim();
+    const { data } = await api.post("/api/resume/chat", {
+      Question: prompt,
+      Mode: AI_MODES.PROJECT_REWRITER, // Adjust mode for your backend
+    });
 
-      const { data } = await api.post("/api/resume/chat", {
-        Question: prompt,
-        Mode: "VideoScript", // adjust as needed for your backend
-      });
-
-      const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
-      setVideoOutput(String(text));
-    } catch (err: any) {
-      alert(err?.response?.data?.message || err?.message || "Failed to generate video script");
-    } finally {
-      setVideoLoading(false);
-    }
+    const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
+    setRewriteOutput(String(text));
+  } catch (err: any) {
+    alert(err?.response?.data?.message || err?.message || "Failed to rewrite project");
+  } finally {
+    setRewriteLoading(false);
   }
+}
+
+async function generateVideoScript() {
+  if (!projectText.trim()) {
+    alert("Paste your project/summary first.");
+    return;
+  }
+  setVideoLoading(true);
+  try {
+    const prompt =
+      "Create a concise 60–90 second video resume script with intro, 2–3 achievements, and a crisp closing CTA. " +
+      "Keep sentences short and conversational.\n\n" + projectText.trim();
+
+    const { data } = await api.post("/api/resume/chat", {
+      Question: prompt,
+      Mode: AI_MODES.VIDEO_SCRIPT, // Adjust mode for your backend
+    });
+
+    const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
+    setVideoOutput(String(text));
+  } catch (err: any) {
+    alert(err?.response?.data?.message || err?.message || "Failed to generate video script");
+  } finally {
+    setVideoLoading(false);
+  }
+}
+
 
   // Multilingual Q&A
   async function askMultilingual() {
@@ -1420,70 +1430,66 @@ export default function Profile() {
 
           {/* NEW: Mock Interview Q/A Generator */}
           <Card title="Mock interview (generate questions)">
-            <Two>
-              <Field label="Number of questions">
-                <input
-                  type="number"
-                  min={5}
-                  max={20}
-                  className="input"
-                  value={questionCount}
-                  onChange={(e) => setQuestionCount(Math.max(5, Math.min(20, Number(e.target.value || 10))))}
-                />
-              </Field>
-              <Field label="Action">
-                <button className="btn btn-primary w-full" onClick={generateInterviewQs} disabled={interviewLoading}>
-                  {interviewLoading ? "Generating…" : "Generate questions"}
-                </button>
-              </Field>
-            </Two>
+  <Two>
+    <Field label="Number of questions">
+      <input
+        type="number"
+        min={5}
+        max={20}
+        className="input"
+        value={questionCount}
+        onChange={(e) => setQuestionCount(Math.max(5, Math.min(20, Number(e.target.value || 10))))}
+      />
+    </Field>
+    <Field label="Action">
+      <button className="btn btn-primary w-full" onClick={generateInterviewQs} disabled={interviewLoading}>
+        {interviewLoading ? "Generating…" : "Generate questions"}
+      </button>
+    </Field>
+  </Two>
 
-            {interviewQs && (
-              <ol className="list-decimal list-inside text-sm mt-3 space-y-1">
-                {interviewQs.map((q, i) => <li key={i}>{q}</li>)}
-              </ol>
-            )}
-            {interviewQs && (
-              <div className="mt-2 text-xs text-gray-600">
-                Tip: Copy these into your notes and write concise STAR answers.
-              </div>
-            )}
-          </Card>
+  {interviewQs && (
+    <ol className="list-decimal list-inside text-sm mt-3 space-y-1">
+      {interviewQs.map((q, i) => <li key={i}>{q}</li>)}
+    </ol>
+  )}
+</Card>
 
           {/* NEW: Project Rewriter + Video Resume Script */}
           <Card title="Project rewrite & video script">
-            <Field label="Paste your project / experience">
-              <textarea
-                className="input h-28"
-                placeholder="Paste a project or short summary to transform…"
-                value={projectText}
-                onChange={(e) => setProjectText(e.target.value)}
-              />
-            </Field>
+  <Field label="Paste your project / experience">
+    <textarea
+      className="input h-28"
+      placeholder="Paste a project or short summary to transform…"
+      value={projectText}
+      onChange={(e) => setProjectText(e.target.value)}
+    />
+  </Field>
 
-            <div className="flex flex-wrap gap-2">
-              <button className="btn btn-primary" onClick={generateProjectRewrite} disabled={rewriteLoading}>
-                {rewriteLoading ? "Rewriting…" : "Rewrite for resume"}
-              </button>
-              <button className="btn btn-ghost" onClick={generateVideoScript} disabled={videoLoading}>
-                {videoLoading ? "Creating…" : "Generate video script"}
-              </button>
-            </div>
+  <div className="flex flex-wrap gap-2">
+    <button className="btn btn-primary" onClick={generateProjectRewrite} disabled={rewriteLoading}>
+      {rewriteLoading ? "Rewriting…" : "Rewrite for resume"}
+    </button>
+    <button className="btn btn-ghost" onClick={generateVideoScript} disabled={videoLoading}>
+      {videoLoading ? "Creating…" : "Generate video script"}
+    </button>
+  </div>
 
-            {rewriteOutput && (
-              <div className="mt-3">
-                <SectionLabel>Rewritten bullets</SectionLabel>
-                <pre className="whitespace-pre-wrap text-sm bg-gray-50 rounded p-2 ring-1 ring-gray-200">{rewriteOutput}</pre>
-              </div>
-            )}
+  {rewriteOutput && (
+    <div className="mt-3">
+      <SectionLabel>Rewritten bullets</SectionLabel>
+      <pre className="whitespace-pre-wrap text-sm bg-gray-50 rounded p-2 ring-1 ring-gray-200">{rewriteOutput}</pre>
+    </div>
+  )}
 
-            {videoOutput && (
-              <div className="mt-3">
-                <SectionLabel>Video resume script</SectionLabel>
-                <pre className="whitespace-pre-wrap text-sm bg-gray-50 rounded p-2 ring-1 ring-gray-200">{videoOutput}</pre>
-              </div>
-            )}
-          </Card>
+  {videoOutput && (
+    <div className="mt-3">
+      <SectionLabel>Video resume script</SectionLabel>
+      <pre className="whitespace-pre-wrap text-sm bg-gray-50 rounded p-2 ring-1 ring-gray-200">{videoOutput}</pre>
+    </div>
+  )}
+</Card>
+
 
           {/* NEW: Multilingual Resume Help */}
           <Card title="Multilingual resume help (English / हिंदी / ગુજરાતી)">
@@ -1523,6 +1529,7 @@ export default function Profile() {
               </div>
             )}
           </Card>
+
         </div>
       )}
 
