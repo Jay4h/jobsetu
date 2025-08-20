@@ -14,6 +14,9 @@ export type JobCardProps = {
   isUrgent?: boolean;
   isSaved?: boolean;
   isApplied?: boolean;
+  onApply: () => void; // Add this
+  onWithdraw: () => void; // Add this
+  onUnsave: () => void; // Add this
 };
 
 export default function JobCard(props: JobCardProps) {

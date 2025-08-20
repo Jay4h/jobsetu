@@ -8,13 +8,14 @@ import CompanyJobs from "./pages/CompanyJobs";
 import ProtectedRoute from "./components/ProtectedRoute";
 import OnboardSeeker from "./pages/OnboardSeeker";
 import OnboardRecruiter from "./pages/OnboardRecruiter";
-import ProfileGate from "./components/ProfileGate";         // 👈 add this
+import ProfileGate from "./components/ProfileGate";
 import { setUnauthorizedHandler } from "./lib/api";
-import Profile from "./pages/Profile"; // 
+import Profile from "./pages/Profile";
+import AppliedSavedJobsHub from "./pages/AppliedSavedJobsHub";
 function AppLayout() {
   return (
     <>
-       <Navbar />
+      <Navbar />
       <ProfileGate />   {/* 👈 runs on every route */}
       <Outlet />
     </>
@@ -41,13 +42,16 @@ export default function App() {
         <Route path="/onboarding/seeker" element={<OnboardSeeker />} />
         <Route path="/onboarding/recruiter" element={<OnboardRecruiter />} />
         <Route path="/profile" element={<Profile />} />
-        {/* Protected group (keep for truly private pages if/when you add them) */}
-        <Route element={<ProtectedRoute />}>
-          {/* Example:
-          <Route path="/messages" element={<Messages />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          */}
-        </Route>
+
+        {/* Protected Routes */}
+        <Route
+          path="/applied-saved-jobs"
+          element={
+            <ProtectedRoute role="JobSeeker">
+              <AppliedSavedJobsHub />
+            </ProtectedRoute>
+          }
+        />
 
         {/* 404 */}
         <Route

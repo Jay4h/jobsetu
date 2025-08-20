@@ -49,16 +49,13 @@ export default function Jobs() {
     return onAuthChanged(() => {
       const authed = !!authStorage.getToken();
 
-      // instant visual fix after LOGOUT (before network round-trip)
       if (!authed) {
         setJobs(prev => prev.map(j => ({ ...j, isApplied: false, isSaved: false })));
       }
-
-      setAuthRev(x => x + 1); // triggers refetch below
+      setAuthRev(x => x + 1);
     });
   }, []);
 
-  // dynamic filter options (loaded from backend)
   const [options, setOptions] = useState<Options>({
     locations: [],
     departments: [],
@@ -82,7 +79,6 @@ export default function Jobs() {
         const { data } = await api.get("/api/jobs/filters");
         if (!mounted || !Array.isArray(data)) return;
 
-        // map backend Type -> frontend options key
         const mapKey: Record<string, keyof Options> = {
           Location: "locations",
           Department: "departments",
@@ -124,6 +120,35 @@ export default function Jobs() {
 
     return () => { mounted = false; };
   }, []);
+
+  // ---- required handlers for JobCard ----
+  const handleApply = async (jobId: number) => {
+    try {
+      await api.post(`/api/jobs/apply/${jobId}`);
+      setJobs(prev => prev.map(j => j.jobId === jobId ? { ...j, isApplied: true, isSaved: false } : j));
+    } catch (e) {
+      console.warn("[jobs] apply failed", e);
+    }
+  };
+
+  const handleWithdraw = async (jobId: number) => {
+    try {
+      await api.post(`/api/jobs/withdraw/${jobId}`);
+      setJobs(prev => prev.map(j => j.jobId === jobId ? { ...j, isApplied: false } : j));
+    } catch (e) {
+      console.warn("[jobs] withdraw failed", e);
+    }
+  };
+
+  const handleUnsave = async (jobId: number) => {
+    try {
+      await api.post(`/api/jobs/unsave/${jobId}`);
+      setJobs(prev => prev.map(j => j.jobId === jobId ? { ...j, isSaved: false } : j));
+    } catch (e) {
+      console.warn("[jobs] unsave failed", e);
+    }
+  };
+  // --------------------------------------
 
   // SINGLE EFFECT that covers all fetch cases
   useEffect(() => {
@@ -245,7 +270,24 @@ export default function Jobs() {
             ? Array.from({ length: 6 }).map((_, i) => <JobCardSkeleton key={i} />)
             : jobs.length === 0
               ? <EmptyState />
-              : jobs.map((j) => <JobCard key={j.jobId} {...j} />)}
+              : jobs.map((j) => (
+                  <JobCard
+                    key={j.jobId}
+                    jobId={j.jobId}
+                    title={j.title}
+                    location={j.location}
+                    company={j.company}
+                    tags={j.tags}
+                    salaryMin={j.salaryMin}
+                    salaryMax={j.salaryMax}
+                    isUrgent={j.isUrgent}
+                    isSaved={j.isSaved}
+                    isApplied={j.isApplied}
+                    onApply={() => handleApply(j.jobId)}
+                    onWithdraw={() => handleWithdraw(j.jobId)}
+                    onUnsave={() => handleUnsave(j.jobId)}
+                  />
+                ))}
         </div>
 
         <div className="mt-6 flex items-center justify-between">
@@ -327,7 +369,6 @@ function mapApiJob(r: any): Job {
       name: r.CompanyName ?? company.name ?? company.Name,
       logoUrl: r.LogoUrl ?? company.logoUrl ?? company.LogoUrl,
     },
-    // ✅ FIXED typo (Tabs -> Tags) and supports string/array
     tags: r.Tags
       ? (Array.isArray(r.Tags) ? r.Tags : String(r.Tags).split(",").map((t: string) => t.trim()))
       : (r.tags ?? []),

@@ -155,11 +155,11 @@ export default function Navbar() {
                       </Link>
                     ) : (
                       <Link
-                        to="/applied-jobs"
+                        to="/applied-saved-jobs"  // Updated link to point to the combined page
                         className="block px-3 py-2 text-sm hover:bg-gray-50"
                         onClick={() => setMenuOpen(false)}
                       >
-                        Applied Jobs
+                        Applied & Saved Jobs  {/* Updated text to match combined page */}
                       </Link>
                     )}
                     <button

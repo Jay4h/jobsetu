@@ -62,32 +62,29 @@ export const authStorage = {
 };
 /* -------------------------------------------------------- */
 // --- read role from the JWT (if present) ---
-export function getRoleFromToken():
-  | "JobSeeker"
-  | "Recruiter"
-  | null {
+export function getRoleFromToken(): "JobSeeker" | "Recruiter" | null {
   const tok = authStorage.getToken();
   if (!tok) return null;
   const parts = tok.split(".");
   if (parts.length < 2) return null;
 
   try {
-    // JWT base64url → base64
     const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     const json = JSON.parse(atob(b64));
 
-    // common claim names
     const roleClaim =
       json.role ||
       json.roles ||
       json["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
 
     if (Array.isArray(roleClaim)) {
-      const r = roleClaim.find((x: string) => x === "Recruiter" || x === "JobSeeker");
-      return r || null;
+      const r = roleClaim.find(
+        (x: string) => x === "Recruiter" || x === "JobSeeker"
+      );
+      return (r as any) || null;
     }
-
-    if (roleClaim === "Recruiter" || roleClaim === "JobSeeker") return roleClaim as any;
+    if (roleClaim === "Recruiter" || roleClaim === "JobSeeker")
+      return roleClaim as any;
     return null;
   } catch {
     return null;
@@ -99,15 +96,6 @@ let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
-/* -------------------------------------------------------- */
-
-/** Optional flag on requests to suppress global 401/403 handling */
-export type AppAxiosConfig = AxiosRequestConfig & {
-  /** Preferred: suppress global handler for this request */
-  suppressUnauthorized?: boolean;
-  /** Back-compat with a legacy flag */
-  meta?: { ignoreGlobal401?: boolean };
-};
 
 /* --------------------- axios instance -------------------- */
 type Cfg = InternalAxiosRequestConfig & {
@@ -164,7 +152,6 @@ api.interceptors.response.use(
     const status = Number(error.response?.status);
     const path = extractPath(cfg?.url);
 
-    // Compose a clean message once
     const data = error.response?.data as any;
     const message =
       (typeof data === "string" && data) ||
@@ -172,26 +159,21 @@ api.interceptors.response.use(
       data?.Message ||
       error.message ||
       "Request failed";
-
     const normalized = { message, status, data };
 
-    // Should we suppress global unauthorized handling?
     const suppressed =
       !!cfg?.suppressUnauthorized || !!cfg?.meta?.ignoreGlobal401;
 
     if ((status === 401 || status === 403) && !suppressed) {
-      // Do NOT treat auth endpoints as "session expired"
       if (!AUTH_PATHS.has(path)) {
         authStorage.clear();
         onUnauthorized?.();
       }
       return Promise.reject(normalized);
     }
-
     return Promise.reject(normalized);
   }
 );
-/* -------------------------------------------------------- */
 
 /* ---------------- error normalization helper ------------- */
 export function normalizeApiError(err: unknown): {
@@ -214,6 +196,5 @@ export function normalizeApiError(err: unknown): {
   if (anyErr?.message) return anyErr;
   return { message: "Unknown error" };
 }
-/* -------------------------------------------------------- */
 
 export default api;
