@@ -23,6 +23,10 @@ export interface CareerJobCardProps {
   onWithdraw?: (jobId: number) => void;
   onUnsave?: (jobId: number) => void;
 
+  // callbacks for Recommendations (parent updates its lists optimistically)
+  onApply?: () => void;
+  onSave?: () => void;
+
   // Compare tab hides actions
   readOnly?: boolean;
 
@@ -41,6 +45,7 @@ export default function CareerJobCard({
   isRemote, isUrgent, isApplied, isSaved,
   onWithdraw, onUnsave, readOnly,
   matchedSkills, matchPercentage, showOnlyMatched,
+  onApply, onSave,
   showAppliedBadge = true,
   dense = false,
   showSalary = true,
@@ -65,21 +70,42 @@ export default function CareerJobCard({
     if (!a) { setSaved(false); setApplied(false); }
   }), []);
 
+  // super-tolerant POST for /save and /apply
   async function postWithId(url: string, id: number) {
-    try {
-      return await api.post(url, id, { headers: { "Content-Type": "application/json" } });
-    } catch (e: any) {
-      if ([400, 415, 422].includes(Number(e?.status))) {
-        return await api.post(url, { jobId: id });
-      }
-      throw e;
+    let lastErr: any;
+    const tries = [
+      () => api.post(url, id, { headers: { "Content-Type": "application/json" } }),
+      () => api.post(url, { jobId: id }),
+      () => api.post(url, { JobId: id }),
+      () => {
+        const fd = new FormData();
+        fd.append("jobId", String(id));
+        fd.append("JobId", String(id));
+        return api.post(url, fd, {
+          transformRequest: [(data, headers) => {
+            if (headers) {
+              delete (headers as any)["Content-Type"];
+              delete (headers as any)["content-type"];
+            }
+            return data as any;
+          }],
+        });
+      },
+      () => api.post(`${url}?jobId=${id}`),
+    ];
+    for (const go of tries) {
+      try { return await go(); }
+      catch (e) { lastErr = e; }
     }
+    throw lastErr;
   }
+
   const extractMessage = (err: any): string | undefined => {
     const d = err?.data;
     if (typeof d === "string") return d;
     return d?.Message || d?.message || err?.message;
   };
+
   async function refreshStatus() {
     try {
       const { data } = await api.get(`/api/jobs/${jobId}`);
@@ -87,6 +113,7 @@ export default function CareerJobCard({
       if (typeof data?.isSaved === "boolean") setSaved(!!data.isSaved);
     } catch { }
   }
+
   async function refreshStatusAndInfer(): Promise<"applied" | "saved" | "unknown"> {
     try {
       const { data } = await api.get(`/api/jobs/${jobId}`);
@@ -117,6 +144,7 @@ export default function CareerJobCard({
     try {
       await postWithId("/api/jobs/save", jobId);
       setSaved(true);
+      onSave?.();                 // notify parent to update its Saved list
       await refreshStatus();
     } catch (err: any) {
       const status = Number(err?.status);
@@ -125,6 +153,7 @@ export default function CareerJobCard({
         alert("Please log in as a Job Seeker to save jobs.");
       } else if (/already\s*saved/i.test(msg)) {
         setSaved(true);
+        onSave?.();
         alert("You already saved this job.");
       } else {
         alert(msg || "Couldn't save this job.");
@@ -139,6 +168,7 @@ export default function CareerJobCard({
     try {
       await postWithId("/api/jobs/apply", jobId);
       setApplied(true);
+      onApply?.();                // notify parent to update its Applied list
       await refreshStatus();
     } catch (err: any) {
       const status = Number(err?.status);
@@ -147,10 +177,11 @@ export default function CareerJobCard({
         alert("Please log in as a Job Seeker to apply.");
       } else if (/already\s*applied/i.test(msg)) {
         setApplied(true);
+        onApply?.();
         alert("You already applied to this job.");
       } else if (status === 400 && !msg) {
         const inferred = await refreshStatusAndInfer();
-        if (inferred !== "unknown") return;
+        if (inferred === "applied") { onApply?.(); return; }
         alert("Couldn't apply to this job. Please try again.");
       } else {
         alert(msg || "Couldn't apply to this job. Please try again.");
@@ -224,7 +255,6 @@ export default function CareerJobCard({
               <span>★</span> <span>Saved</span>
             </span>
           )}
-
         </div>
       </div>
 
