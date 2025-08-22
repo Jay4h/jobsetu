@@ -24,14 +24,13 @@ function emitAuthChanged() {
   }
 }
 /* -------------------------------------------------------- */
+
 // --- Axios module augmentation so we can pass suppressUnauthorized ---
 declare module "axios" {
-  // what callers pass to api.get/post…
   interface AxiosRequestConfig {
     suppressUnauthorized?: boolean;           // ✅ our custom flag
     meta?: { ignoreGlobal401?: boolean };     // (legacy flag you had)
   }
-  // what interceptors receive
   interface InternalAxiosRequestConfig {
     suppressUnauthorized?: boolean;
     meta?: { ignoreGlobal401?: boolean };
@@ -61,6 +60,7 @@ export const authStorage = {
   },
 };
 /* -------------------------------------------------------- */
+
 // --- read role from the JWT (if present) ---
 export function getRoleFromToken(): "JobSeeker" | "Recruiter" | null {
   const tok = authStorage.getToken();
@@ -164,13 +164,18 @@ api.interceptors.response.use(
     const suppressed =
       !!cfg?.suppressUnauthorized || !!cfg?.meta?.ignoreGlobal401;
 
-    if ((status === 401 || status === 403) && !suppressed) {
-      if (!AUTH_PATHS.has(path)) {
-        authStorage.clear();
-        onUnauthorized?.();
-      }
+    // ✅ Only 401 should clear credentials and fire the global handler.
+    if (status === 401 && !suppressed && !AUTH_PATHS.has(path)) {
+      authStorage.clear();
+      onUnauthorized?.();
       return Promise.reject(normalized);
     }
+
+    // ✅ 403 (forbidden) should *not* log users out (e.g., Recruiter trying seeker-only action).
+    if (status === 403) {
+      return Promise.reject(normalized);
+    }
+
     return Promise.reject(normalized);
   }
 );

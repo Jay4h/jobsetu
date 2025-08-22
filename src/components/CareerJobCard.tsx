@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import api, { authStorage, onAuthChanged } from "../lib/api";
-
+import api, { authStorage, onAuthChanged,getRoleFromToken } from "../lib/api";
+import { openAuth } from "../lib/authGate";
 type TimelineEntry = { status: string; time: string };
 
 export interface CareerJobCardProps {
@@ -105,7 +105,17 @@ export default function CareerJobCard({
     if (typeof d === "string") return d;
     return d?.Message || d?.message || err?.message;
   };
-
+  function requireAuth(): boolean {
+    if (!authed) { openAuth("login"); return false; }
+    return true;
+  }
+  function guardForJobSeeker(action: "apply" | "save") {
+  const authed = !!authStorage.getToken();
+  const role = getRoleFromToken();
+  if (!authed) { openAuth("login"); return false; }
+  if (role !== "JobSeeker") { alert(`You're signed in as a Recruiter. Only Job Seekers can ${action}.`); return false; }
+  return true;
+}
   async function refreshStatus() {
     try {
       const { data } = await api.get(`/api/jobs/${jobId}`);
@@ -139,6 +149,7 @@ export default function CareerJobCard({
   }, [authed, jobId]);
 
   async function handleSave() {
+    if (!requireAuth()) return;
     if (savedNow || saving) return;
     setSaving(true);
     try {
@@ -163,6 +174,8 @@ export default function CareerJobCard({
   }
 
   async function handleApply() {
+    if (!requireAuth()) return;
+
     if (appliedNow || applying) return;
     setApplying(true);
     try {
@@ -289,19 +302,21 @@ export default function CareerJobCard({
             <>
               <button
                 className="btn btn-primary"
-                disabled={!authed || appliedNow || applying}
+                disabled={appliedNow || applying}
                 onClick={handleApply}
                 title={!authed ? "Login to apply" : appliedNow ? "You have already applied" : "Apply to this job"}
               >
                 {appliedNow ? "Applied" : applying ? "Applying…" : "Apply"}
+
               </button>
               <button
                 className="btn btn-ghost"
-                disabled={!authed || savedNow || saving}
+                disabled={savedNow || saving}
                 onClick={handleSave}
                 title={!authed ? "Login to save" : savedNow ? "Already saved" : "Save this job"}
               >
                 {savedNow ? "Saved" : saving ? "Saving…" : "Save"}
+
               </button>
             </>
           )}

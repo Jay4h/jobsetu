@@ -1,4 +1,5 @@
-import { Routes, Route, Outlet } from "react-router-dom";
+// src/App.tsx
+import { Routes, Route, Outlet, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
@@ -12,11 +13,25 @@ import ProfileGate from "./components/ProfileGate";
 import { setUnauthorizedHandler } from "./lib/api";
 import Profile from "./pages/Profile";
 import AppliedSavedJobsHub from "./pages/AppliedSavedJobsHub";
+import { openAuth } from "./lib/authGate";
+
+// ✅ Recruiter pages
+import RecruiterProfile from "./pages/RecruiterProfile";
+import RecruiterJobs from "./pages/RecruiterJobs";
+import PostJob from "./pages/PostJob";
+import EditJob from "./pages/EditJob";
+import Applicants from "./pages/Applicants";
+import RecruiterAnalytics from "./pages/RecruiterAnalytics";
+import SavedApplicants from "./pages/SavedApplicants";
+
 function AppLayout() {
+  const loc = useLocation();
+  const showGate = !/^\/onboarding(\/|$)/i.test(loc.pathname); // ⬅️ skip on onboarding
+
   return (
     <>
       <Navbar />
-      <ProfileGate />   {/* 👈 runs on every route */}
+      {showGate && <ProfileGate />} {/* runs on all routes except /onboarding/* */}
       <Outlet />
     </>
   );
@@ -25,7 +40,7 @@ function AppLayout() {
 export default function App() {
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      alert("Your session expired or you are not logged in. Please sign in.");
+      openAuth("login"); // show login popup on global 401/403
     });
   }, []);
 
@@ -41,9 +56,69 @@ export default function App() {
         {/* Onboarding */}
         <Route path="/onboarding/seeker" element={<OnboardSeeker />} />
         <Route path="/onboarding/recruiter" element={<OnboardRecruiter />} />
+
+        {/* Profile (Job Seeker) */}
         <Route path="/profile" element={<Profile />} />
 
-        {/* Protected Routes */}
+        {/* ✅ Recruiter (Protected) */}
+        <Route
+          path="/recruiter/profile"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <RecruiterProfile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recruiter/jobs"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <RecruiterJobs />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recruiter/post"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <PostJob />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recruiter/jobs/:jobId/edit"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <EditJob />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recruiter/jobs/:jobId/applicants"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <Applicants />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recruiter/jobs/:jobId/saved"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <SavedApplicants />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recruiter/analytics"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <RecruiterAnalytics />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Job Seeker (Protected) */}
         <Route
           path="/applied-saved-jobs"
           element={

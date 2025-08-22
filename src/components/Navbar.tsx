@@ -1,13 +1,21 @@
 // src/components/Navbar.tsx
-import { Link, NavLink } from "react-router-dom";
-import { useState, useEffect, useCallback } from "react";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import { useState, useEffect, useCallback, useRef } from "react";
 import AuthModal from "./AuthModal";
 import { authStorage, onAuthChanged } from "../lib/api";
+import { onOpenAuth } from "../lib/authGate";
 
 type SavedUser = { fullName?: string; role?: string } | null;
 
+function safeRead(key: string) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
 function readUser(): SavedUser {
-  const saved = localStorage.getItem("jobsetu_user");
+  const saved = safeRead("jobsetu_user");
   if (!saved) return null;
   try {
     return JSON.parse(saved);
@@ -15,31 +23,61 @@ function readUser(): SavedUser {
     return null;
   }
 }
+function makeInitials(name?: string) {
+  const s = (name || "").trim();
+  if (!s) return "U";
+  const parts = s.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
 
 export default function Navbar() {
-  //const link = "text-sm text-gray-700 hover:text-gray-900";
   const pillBtn =
     "px-3 h-9 inline-flex items-center rounded-xl border border-gray-300 text-sm";
-
   const [user, setUser] = useState<SavedUser>(readUser());
   const [open, setOpen] = useState(false);
   const [startTab, setStartTab] =
     useState<"login" | "register" | "forgot">("login");
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const nav = useNavigate();
 
-  // keep in sync across tabs + react to authStorage changes
+  // keep in sync across tabs, react to auth changes, listen for global "open auth"
   useEffect(() => {
     const storageHandler = (e: StorageEvent) => {
+      if (!e.key || e.storageArea !== localStorage) return;
       if (e.key === "jobsetu_user" || e.key === "jobsetu_token") {
         setUser(readUser());
       }
     };
-    const off = onAuthChanged(() => setUser(readUser()));
+    const offAuthChange = onAuthChanged(() => setUser(readUser()));
+
+    // Listen for global request to open auth modal (from cards / 401 handler)
+    const offOpenAuth = onOpenAuth((tab) => {
+      setStartTab(tab);
+      setOpen(true);
+    });
+
+    // Close menu on outside click
+    const clickAway = (e: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!(e.target instanceof Node)) return;
+      if (!menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    // Esc to close
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
 
     window.addEventListener("storage", storageHandler);
+    window.addEventListener("click", clickAway);
+    window.addEventListener("keydown", esc);
     return () => {
       window.removeEventListener("storage", storageHandler);
-      off();
+      window.removeEventListener("click", clickAway);
+      window.removeEventListener("keydown", esc);
+      offAuthChange();
+      offOpenAuth();
     };
   }, []);
 
@@ -52,39 +90,36 @@ export default function Navbar() {
     authStorage.clear();
     try {
       localStorage.removeItem("jobsetu_user");
-    } catch { }
+    } catch {}
     setUser(null);
     setMenuOpen(false);
-
-    window.location.reload();
+    window.location.assign("/"); // hard redirect to clear state everywhere
   }
 
-  const initials =
-    (user?.fullName || "")
-      .split(" ")
-      .map((w) => w[0])
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() || "U";
+  const initials = makeInitials(user?.fullName);
 
   return (
     <>
       <nav className="w-full bg-white/90 backdrop-blur border-b sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 lg:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-5">
-            <Link to="/" className="font-semibold text-lg">
+            <Link to="/" className="font-semibold text-lg" aria-label="JobSetu Home">
               JobSetu
             </Link>
             <div className="flex items-center gap-6">
               <NavLink
                 to="/jobs"
-                className={({ isActive }) => isActive ? "navlink navlink-active" : "navlink"}
+                className={({ isActive }) =>
+                  isActive ? "navlink navlink-active" : "navlink"
+                }
               >
                 Jobs
               </NavLink>
               <NavLink
                 to="/companies"
-                className={({ isActive }) => isActive ? "navlink navlink-active" : "navlink"}
+                className={({ isActive }) =>
+                  isActive ? "navlink navlink-active" : "navlink"
+                }
               >
                 Companies
               </NavLink>
@@ -92,7 +127,7 @@ export default function Navbar() {
           </div>
 
           {/* right: auth / profile */}
-          <div className="relative flex items-center gap-2">
+          <div className="relative flex items-center gap-2" ref={menuRef}>
             {!user ? (
               <>
                 <button
@@ -119,6 +154,8 @@ export default function Navbar() {
                 <button
                   className="h-9 px-2 rounded-xl border border-gray-300 inline-flex items-center gap-2"
                   onClick={() => setMenuOpen((s) => !s)}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
                 >
                   <span className="h-7 w-7 rounded-full bg-gray-900 text-white grid place-items-center text-xs font-semibold">
                     {initials}
@@ -126,43 +163,81 @@ export default function Navbar() {
                   <span className="hidden sm:inline text-sm">
                     {user.fullName}
                   </span>
+                  <span className="sr-only">Open profile menu</span>
                 </button>
 
                 {menuOpen && (
                   <div
-                    className="absolute right-0 top-12 w-48 bg-white border rounded-xl shadow-lg overflow-hidden"
-                    onMouseLeave={() => setMenuOpen(false)}
+                    role="menu"
+                    className="absolute right-0 top-12 w-56 bg-white border rounded-xl shadow-lg overflow-hidden"
                   >
                     <div className="px-3 py-2 text-xs text-gray-500">
                       {user.role ? `Role: ${user.role}` : "Signed in"}
                     </div>
-                    <Link
-                      to={
-                        user.role === "Recruiter" ? "/recruiter/profile" : "/profile"
-                      }
-                      className="block px-3 py-2 text-sm hover:bg-gray-50"
-                      onClick={() => setMenuOpen(false)}
+
+                    <button
+                      role="menuitem"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (user.role === "Recruiter") {
+                          nav("/recruiter/profile");
+                        } else {
+                          nav("/profile");
+                        }
+                      }}
                     >
                       Profile
-                    </Link>
+                    </button>
+
                     {user.role === "Recruiter" ? (
-                      <Link
-                        to="/recruiter/jobs"
-                        className="block px-3 py-2 text-sm hover:bg-gray-50"
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        My Jobs
-                      </Link>
+                      <>
+                        <button
+                          role="menuitem"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            nav("/recruiter/jobs");
+                          }}
+                        >
+                          My Jobs
+                        </button>
+                        <button
+                          role="menuitem"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            nav("/recruiter/post");
+                          }}
+                        >
+                          Post a Job
+                        </button>
+                        <button
+                          role="menuitem"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            nav("/recruiter/analytics");
+                          }}
+                        >
+                          Analytics
+                        </button>
+                      </>
                     ) : (
-                      <Link
-                        to="/applied-saved-jobs"  // Updated link to point to the combined page
-                        className="block px-3 py-2 text-sm hover:bg-gray-50"
-                        onClick={() => setMenuOpen(false)}
+                      <button
+                        role="menuitem"
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          nav("/applied-saved-jobs");
+                        }}
                       >
-                        Applied & Saved Jobs  {/* Updated text to match combined page */}
-                      </Link>
+                        Applied &amp; Saved Jobs
+                      </button>
                     )}
+
                     <button
+                      role="menuitem"
                       className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
                       onClick={handleLogout}
                     >

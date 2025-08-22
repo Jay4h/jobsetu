@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import api, { authStorage, onAuthChanged } from "../lib/api";
-
+import api, { authStorage, onAuthChanged, getRoleFromToken } from "../lib/api";
+import { openAuth } from "../lib/authGate";
 export type JobCardProps = {
   jobId: number;
   title: string;
@@ -32,6 +32,7 @@ export default function JobCard(props: JobCardProps) {
   const [applied, setApplied] = useState(!!isApplied);
 
   const [authed, setAuthed] = useState<boolean>(!!authStorage.getToken());
+  const [role, setRole] = useState<"JobSeeker" | "Recruiter" | null>(getRoleFromToken());
 
   useEffect(() => { setSaved(!!isSaved); }, [isSaved]);
   useEffect(() => { setApplied(!!isApplied); }, [isApplied]);
@@ -41,6 +42,7 @@ export default function JobCard(props: JobCardProps) {
     return onAuthChanged(() => {
       const a = !!authStorage.getToken();
       setAuthed(a);
+      setRole(getRoleFromToken());
       if (!a) {
         setSaved(false);
         setApplied(false);
@@ -68,13 +70,30 @@ export default function JobCard(props: JobCardProps) {
     if (typeof d === "string") return d;
     return d?.Message || d?.message || err.message;
   }
+  function requireAuth(): boolean {
+    if (!authed) {
+      openAuth("login");                        // ✅ open login popup
+      return false;
+    }
+    return true;
+  }
+  // Only Job Seekers can apply/save
+  function requireJobSeeker(action: "apply" | "save"): boolean {
+    if (!requireAuth()) return false;
+    const r = role || getRoleFromToken();
+    if (r !== "JobSeeker") {
+      alert(`You're signed in as a Recruiter. Only Job Seekers can ${action}.`);
+      return false;
+    }
+    return true;
+  }
 
   async function refreshStatus() {
     try {
       const { data } = await api.get(`/api/jobs/${jobId}`);
       if (typeof data?.isApplied === "boolean") setApplied(!!data.isApplied);
       if (typeof data?.isSaved === "boolean") setSaved(!!data.isSaved);
-    } catch {}
+    } catch { }
   }
 
   async function refreshStatusAndInfer(): Promise<"applied" | "saved" | "unknown"> {
@@ -88,7 +107,7 @@ export default function JobCard(props: JobCardProps) {
         setSaved(true);
         return "saved";
       }
-    } catch {}
+    } catch { }
     return "unknown";
   }
 
@@ -106,12 +125,13 @@ export default function JobCard(props: JobCardProps) {
         if (cancelled) return;
         if (typeof data?.isApplied === "boolean") setApplied(!!data.isApplied);
         if (typeof data?.isSaved === "boolean") setSaved(!!data.isSaved);
-      } catch {}
+      } catch { }
     })();
     return () => { cancelled = true; };
   }, [authed, jobId]);
 
   async function handleSave() {
+    if (!requireJobSeeker("save")) return;
     if (saved || saving) return;
     setSaving(true);
     try {
@@ -137,6 +157,7 @@ export default function JobCard(props: JobCardProps) {
   }
 
   async function handleApply() {
+    if (!requireJobSeeker("apply")) return;
     if (applied || applying) return;
     setApplying(true);
     try {
@@ -219,18 +240,33 @@ export default function JobCard(props: JobCardProps) {
       <div className="mt-auto pt-3 flex gap-2">
         <button
           className="btn btn-primary"
-          disabled={!authed || applied || applying}
+          disabled={applied || applying}              // was: !authed || applied || applying
           onClick={handleApply}
-          title={!authed ? "Login to apply" : applied ? "You have already applied" : "Apply to this job"}
+          title={
+            !authed
+              ? "Login to apply"
+              : role === "Recruiter"
+                ? "Recruiters can’t apply"
+                : applied
+                  ? "You have already applied"
+                  : "Apply to this job"
+          }    
         >
           {applied ? "Applied" : applying ? "Applying…" : "Apply"}
         </button>
         <button
           className="btn btn-ghost"
-          disabled={!authed || saved || saving}
+          disabled={saved || saving}                  // was: !authed || saved || saving
           onClick={handleSave}
-          title={!authed ? "Login to save" : saved ? "Already saved" : "Save this job"}
-        >
+          title={
+            !authed
+              ? "Login to save"
+              : role === "Recruiter"
+                ? "Recruiters can’t save jobs"
+                : applied
+                  ? "Already saved"
+                  : "Save this job"
+          }        >
           {saved ? "Saved" : saving ? "Saving…" : "Save"}
         </button>
       </div>
