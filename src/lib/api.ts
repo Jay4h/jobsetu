@@ -7,6 +7,7 @@ import type {
 } from "axios";
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || "";
+export const API_BASE_URL = BASE_URL;              // ⬅️ useful for absolute links
 const TOKEN_KEY = "jobsetu_token";
 
 /* ----------------- auth change event bus ----------------- */
@@ -126,7 +127,7 @@ api.interceptors.request.use((config: Cfg) => {
   return config;
 });
 
-/** Auth endpoints where 401/403 should NOT trigger global logout/alert */
+/** Auth endpoints where 401 should NOT trigger global logout/alert */
 const AUTH_PATHS = new Set<string>([
   "/api/auth/login",
   "/api/auth/register",
@@ -141,7 +142,7 @@ function extractPath(url?: string) {
   try {
     return new URL(url, BASE_URL || window.location.origin).pathname.toLowerCase();
   } catch {
-    return url.toLowerCase();
+    return (url || "").toLowerCase();
   }
 }
 
@@ -152,13 +153,22 @@ api.interceptors.response.use(
     const status = Number(error.response?.status);
     const path = extractPath(cfg?.url);
 
-    const data = error.response?.data as any;
-    const message =
-      (typeof data === "string" && data) ||
-      data?.message ||
-      data?.Message ||
-      error.message ||
-      "Request failed";
+    let data: any = error.response?.data;
+    let message: string;
+
+    // If server returned Blob (common on failed downloads), try to read text quickly
+    if (data instanceof Blob) {
+      message = error.message || "Request failed";
+      // Note: we avoid async FileReader here to keep this interceptor sync.
+    } else {
+      message =
+        (typeof data === "string" && data) ||
+        data?.message ||
+        data?.Message ||
+        error.message ||
+        "Request failed";
+    }
+
     const normalized = { message, status, data };
 
     const suppressed =
@@ -171,7 +181,7 @@ api.interceptors.response.use(
       return Promise.reject(normalized);
     }
 
-    // ✅ 403 (forbidden) should *not* log users out (e.g., Recruiter trying seeker-only action).
+    // ✅ 403 (forbidden) should *not* log users out.
     if (status === 403) {
       return Promise.reject(normalized);
     }
@@ -179,6 +189,24 @@ api.interceptors.response.use(
     return Promise.reject(normalized);
   }
 );
+
+/* ---------------- helpers you can import ----------------- */
+
+/** Use this headers object for FormData requests so axios sets proper boundary. */
+export const multipart = { headers: { "Content-Type": "multipart/form-data" } };
+
+/** Build an absolute URL against API_BASE_URL (useful for image/src fallbacks). */
+export function absUrl(path: string) {
+  const base = (API_BASE_URL || "").replace(/\/+$/, "");
+  const p = (path || "").replace(/^\/+/, "");
+  return `${base}/${p}`;
+}
+
+/** GET a Blob (e.g., CSV, PDF) with auth attached. */
+export async function getBlob(path: string, params?: Record<string, any>): Promise<Blob> {
+  const { data } = await api.get(path, { params, responseType: "blob" });
+  return data as Blob;
+}
 
 /* ---------------- error normalization helper ------------- */
 export function normalizeApiError(err: unknown): {
@@ -189,6 +217,12 @@ export function normalizeApiError(err: unknown): {
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;
     const data = err.response?.data;
+
+    // If Blob error, just return a generic message (parsing Blob is async)
+    if (data instanceof Blob) {
+      return { message: "Request failed", status, data };
+    }
+
     const message =
       (typeof data === "string" && data) ||
       (data as any)?.message ||

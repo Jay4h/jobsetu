@@ -23,6 +23,7 @@ import EditJob from "./pages/EditJob";
 import Applicants from "./pages/Applicants";
 import RecruiterAnalytics from "./pages/RecruiterAnalytics";
 import SavedApplicants from "./pages/SavedApplicants";
+import EditCompany from "./pages/EditCompany";
 
 function AppLayout() {
   const loc = useLocation();
@@ -40,7 +41,7 @@ function AppLayout() {
 export default function App() {
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      openAuth("login"); // show login popup on global 401/403
+      openAuth("login"); // show login popup on global 401
     });
   }, []);
 
@@ -70,6 +71,14 @@ export default function App() {
           }
         />
         <Route
+          path="/recruiter/profile/edit"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <EditCompany />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/recruiter/jobs"
           element={
             <ProtectedRoute role="Recruiter">
@@ -77,8 +86,17 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        {/* keep your original /recruiter/post AND add /recruiter/post-job alias */}
         <Route
           path="/recruiter/post"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <PostJob />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recruiter/post-job"
           element={
             <ProtectedRoute role="Recruiter">
               <PostJob />

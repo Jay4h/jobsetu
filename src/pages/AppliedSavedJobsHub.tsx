@@ -11,7 +11,15 @@ const SKILL_POST = "/api/resume/skill-test";
 const SKILL_HISTORY = "/api/resume/skill-test-history";
 /* NEW: AI resume tips endpoint */
 const RESUME_TIPS = "/api/resume/design-tips";
-
+const STATUS_BADGE: Record<string, string> = {
+  Applied: "bg-gray-100 text-gray-700",
+  Shortlisted: "bg-sky-100 text-sky-700",
+  Interview: "bg-amber-100 text-amber-800",
+  Offered: "bg-emerald-100 text-emerald-700",
+  Hired: "bg-emerald-600 text-white",
+  "On Hold": "bg-purple-100 text-purple-700",
+  Rejected: "bg-rose-100 text-rose-700",
+};
 function buildLogoUrl(raw?: string) {
   if (!raw) return undefined;
   const v = String(raw).trim();
@@ -131,6 +139,22 @@ function normalizeSkillTest(r: any): SkillTest {
     remarks: r.remarks ?? r.Remarks ?? r.notes ?? r.Notes,
     certificateUrl: r.certificateUrl ?? r.CertificateUrl,
   };
+}
+type ApplicationEvent = {
+  status: string;
+  note?: string | null;        // we’ll store public feedback here
+  at?: string | null;
+  by?: string | null;          // optional (recruiter name)
+};
+
+function normalizeStatus(v: any) {
+  return (
+    v?.currentStatus ??
+    v?.CurrentStatus ??
+    v?.status ??
+    v?.Status ??
+    "Applied"
+  );
 }
 
 /* ---------- Skill Test Module (Submit + History) ---------- */
@@ -476,7 +500,7 @@ function ResumeTipsDashboard({
 
 export default function AppliedSavedJobsHub() {
   const [activeTab, setActiveTab] = useState<
-    "applied" | "saved" | "recommended" | "skilltest" | "compare" | "tips"   // ← NEW
+    "applied" | "saved" | "recommended" | "skilltest" | "compare" | "tips" | "status"
   >("applied");
 
   const [appliedJobs, setAppliedJobs] = useState<any[]>([]);
@@ -496,22 +520,30 @@ export default function AppliedSavedJobsHub() {
   const [tipsLoading, setTipsLoading] = useState(false);
   const [tipsData, setTipsData] = useState<ResumeTipsPayload | null>(null);
   const [tipsError, setTipsError] = useState<string | null>(null);
-
+  const [appliedWithStatus, setAppliedWithStatus] = useState<any[]>([]);
+  const [timelines, setTimelines] = useState<Record<number, ApplicationEvent[]>>({});
+  const [tlLoadingId, setTlLoadingId] = useState<number | null>(null);
+  const [tlErrorId, setTlErrorId] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
+
     async function run() {
       setLoading(true);
       try {
         if (activeTab === "applied") {
           const res = await api.get("/api/user/applied-jobs", { params: { page: 1, limit: 10 } });
-          const list: ApiJob[] = res.data?.appliedJobs ?? res.data?.AppliedJobs ?? (Array.isArray(res.data) ? res.data : []);
+          const list: ApiJob[] =
+            res.data?.appliedJobs ?? res.data?.AppliedJobs ?? (Array.isArray(res.data) ? res.data : []);
           const norm = list.map(normalizeJob);
           if (!cancelled) setAppliedJobs(norm);
+
         } else if (activeTab === "saved") {
           const res = await api.get("/api/user/saved-jobs", { params: { page: 1, limit: 10 } });
-          const list: ApiJob[] = res.data?.savedJobs ?? res.data?.SavedJobs ?? (Array.isArray(res.data) ? res.data : []);
+          const list: ApiJob[] =
+            res.data?.savedJobs ?? res.data?.SavedJobs ?? (Array.isArray(res.data) ? res.data : []);
           const norm = list.map(normalizeJob);
           if (!cancelled) setSavedJobs(norm);
+
         } else if (activeTab === "recommended") {
           const [rec, sv, ap] = await Promise.all([
             api.get("/api/jobs/recommended", { params: { page: 1, limit: 10 } }),
@@ -519,28 +551,31 @@ export default function AppliedSavedJobsHub() {
             api.get("/api/user/applied-jobs", { params: { page: 1, limit: 100 } }),
           ]);
 
-          const recList: ApiJob[] = Array.isArray(rec.data) ? rec.data : (rec.data?.recommended ?? rec.data?.Recommended ?? []);
+          const recList: ApiJob[] = Array.isArray(rec.data)
+            ? rec.data
+            : (rec.data?.recommended ?? rec.data?.Recommended ?? []);
           const normRec = recList.map(normalizeJob);
 
-          const savedList: ApiJob[] = sv.data?.savedJobs ?? sv.data?.SavedJobs ?? (Array.isArray(sv.data) ? sv.data : []);
-          const appliedList: ApiJob[] = ap.data?.appliedJobs ?? ap.data?.AppliedJobs ?? (Array.isArray(ap.data) ? ap.data : []);
+          const savedList: ApiJob[] =
+            sv.data?.savedJobs ?? sv.data?.SavedJobs ?? (Array.isArray(sv.data) ? sv.data : []);
+          const appliedList: ApiJob[] =
+            ap.data?.appliedJobs ?? ap.data?.AppliedJobs ?? (Array.isArray(ap.data) ? ap.data : []);
 
           if (!cancelled) {
             setRecommended(normRec);
             setSavedJobs(savedList.map(normalizeJob));
             setAppliedJobs(appliedList.map(normalizeJob));
           }
+
         } else if (activeTab === "skilltest") {
           const res = await api.get(SKILL_HISTORY, { params: { page: 1, limit: 50 } });
-          const list: any[] =
-            Array.isArray(res.data) ? res.data :
-              res.data?.tests ?? res.data?.Tests ??
-              res.data?.history ?? res.data?.History ??
-              res.data?.results ?? res.data?.data ?? [];
+          const list: any[] = Array.isArray(res.data)
+            ? res.data
+            : (res.data?.tests ?? res.data?.Tests ?? res.data?.history ?? res.data?.History ?? res.data?.results ?? res.data?.data ?? []);
           const norm = (Array.isArray(list) ? list : []).map(normalizeSkillTest);
           if (!cancelled) setSkillHistory(norm);
+
         } else if (activeTab === "tips") {
-          // fetch AI design tips
           setTipsLoading(true);
           setTipsError(null);
           try {
@@ -552,7 +587,18 @@ export default function AppliedSavedJobsHub() {
           } finally {
             if (!cancelled) setTipsLoading(false);
           }
+
+        } else if (activeTab === "status") {
+          const res = await api.get("/api/user/applied-jobs", { params: { page: 1, limit: 100 } });
+          const list: any[] =
+            res.data?.appliedJobs ?? res.data?.AppliedJobs ?? (Array.isArray(res.data) ? res.data : []);
+          const norm = list.map((j) => {
+            const base = normalizeJob(j);
+            return { ...base, currentStatus: normalizeStatus(j) };
+          });
+          if (!cancelled) setAppliedWithStatus(norm);
         }
+
       } catch (e) {
         console.error("CareerHub load failed:", e);
         if (!cancelled) {
@@ -565,9 +611,45 @@ export default function AppliedSavedJobsHub() {
         if (!cancelled) setLoading(false);
       }
     }
+
     run();
     return () => { cancelled = true; };
   }, [activeTab]);
+
+  async function loadTimeline(jobId: number) {
+    if (!jobId) return;
+    // cache hit?
+    if (timelines[jobId]) return;
+    setTlLoadingId(jobId);
+    setTlErrorId(null);
+    try {
+      const r = await api.get(`/api/jobs/timeline/${jobId}`);
+      const arr: any[] = Array.isArray(r.data) ? r.data
+        : (r.data?.timeline ?? r.data?.Timeline ?? r.data?.items ?? []);
+
+      const events: ApplicationEvent[] = (arr || []).map((x: any) => {
+        const status = x.status ?? x.Status ?? "";
+        const feedback = x.feedback ?? x.Feedback ?? x.publicFeedback ?? null;
+        const note = x.note ?? x.Note ?? x.Remarks ?? feedback ?? null;  // << use feedback
+        const at =
+          x.atUtc ?? x.AtUtc ??                 // << ISO 8601 from backend
+          x.at ?? x.At ??
+          x.time ?? x.Time ??
+          x.createdAt ?? x.CreatedAt ?? null;
+        const by =
+          x.byRecruiterName ?? x.ByRecruiterName ??
+          x.by ?? x.By ?? null;
+
+        return { status, note, at, by };
+      });
+      setTimelines((m) => ({ ...m, [jobId]: events }));
+    } catch (e) {
+      console.error("timeline failed", e);
+      setTlErrorId(jobId);
+    } finally {
+      setTlLoadingId(null);
+    }
+  }
 
   const handleWithdraw = async (jobId: number) => {
     try {
@@ -605,11 +687,11 @@ export default function AppliedSavedJobsHub() {
     const byId = new Map<number, any>();
     for (const j of [...appliedJobs, ...savedJobs, ...recommended]) {
       if (j?.jobId != null && !byId.has(j.jobId)) byId.set(j.jobId, j);
-      }
+    }
     return Array.from(byId.values());
   }, [appliedJobs, savedJobs, recommended]);
 
- 
+
 
   const toggleCompare = (jobId: number) => {
     setCompareIds(prev => prev.includes(jobId) ? prev.filter(id => id !== jobId) : [...prev, jobId]);
@@ -731,7 +813,7 @@ export default function AppliedSavedJobsHub() {
   }
 
   const tabButton = (
-    id: "applied" | "saved" | "recommended" | "skilltest" | "compare" | "tips",   // ← NEW
+    id: "applied" | "saved" | "recommended" | "skilltest" | "compare" | "tips" | "status",
     label: string
   ) => (
     <button
@@ -762,6 +844,7 @@ export default function AppliedSavedJobsHub() {
                 salaryMax={job.salaryMax}
                 isApplied
                 onWithdraw={() => handleWithdraw(job.jobId)}
+                showTimeline={false}
               />
             ))
           ) : (
@@ -851,6 +934,112 @@ export default function AppliedSavedJobsHub() {
     if (activeTab === "tips") {
       return <ResumeTipsDashboard data={tipsData} loading={tipsLoading} error={tipsError} />;
     }
+    if (activeTab === "status") {
+      // group by status
+      const groups = appliedWithStatus.reduce<Record<string, any[]>>((acc, j) => {
+        const key = (j.currentStatus || "Applied").toString();
+        (acc[key] ||= []).push(j);
+        return acc;
+      }, {});
+
+      const order = ["Applied", "Shortlisted", "Interview", "Offered", "Hired", "On Hold", "Rejected"];
+      const sorted = [
+        ...order.filter(s => groups[s]?.length),
+        ...Object.keys(groups).filter(s => !order.includes(s)),
+      ];
+
+      return (
+        <div className="space-y-8">
+          {sorted.length === 0 ? (
+            <p className="text-gray-600">No applications yet.</p>
+          ) : (
+            sorted.map(st => (
+              <div key={st}>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-lg font-semibold">{st}</span>
+                  <span className="text-xs rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
+                    {groups[st].length}
+                  </span>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {groups[st].map((job) => {
+                    const tl = timelines[job.jobId];
+                    const isLoading = tlLoadingId === job.jobId;
+                    const hasErr = tlErrorId === job.jobId;
+
+                    return (
+                      <div key={job.jobId} className="rounded-2xl border border-gray-200 bg-white p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{job.title}</div>
+                            <div className="text-sm text-gray-600 truncate">
+                              {(job.company?.name || "—")} • {job.location}
+                            </div>
+                          </div>
+                          <span className={`ml-3 shrink-0 rounded-full px-3 py-1 text-xs font-medium
+  ${STATUS_BADGE[job.currentStatus] ?? "bg-gray-100 text-gray-700"}`}>
+                            {job.currentStatus || "Applied"}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex items-center gap-2">
+                          <button
+                            onClick={() =>
+                              tl
+                                ? setTimelines((m) => {
+                                  const { [job.jobId]: _, ...rest } = m; // delete key
+                                  return rest;
+                                })
+                                : loadTimeline(job.jobId)
+                            } className="px-3 py-1.5 text-sm rounded border hover:bg-gray-50"
+                          >
+                            {tl ? "Hide timeline" : isLoading ? "Loading…" : "View timeline"}
+                          </button>
+                          <button
+                            onClick={() => handleWithdraw(job.jobId)}
+                            className="px-3 py-1.5 text-sm rounded bg-gray-900 text-white hover:bg-black"
+                          >
+                            Withdraw
+                          </button>
+                        </div>
+
+                        {hasErr && <div className="mt-3 text-sm text-red-600">Could not load timeline.</div>}
+
+                        {tl && (
+                          <ol className="mt-4 space-y-3 border-t pt-3">
+                            {tl.length === 0 ? (
+                              <li className="text-sm text-gray-600">No status history yet.</li>
+                            ) : (
+                              tl.map((ev, i) => (
+                                <li key={i} className="text-sm">
+                                  <div className="flex items-start gap-3">
+                                    <span className="mt-[2px] h-2 w-2 rounded-full bg-gray-400" />
+                                    <div>
+                                      <div className="font-medium">{ev.status}</div>
+                                      <div className="text-gray-600">
+                                        {ev.at ? formatDateDDMMYYYY(ev.at) : "—"}
+                                        {ev.by ? <span className="ml-2 text-xs text-gray-500">by {ev.by}</span> : null}
+                                      </div>
+                                      {ev.note && <div className="text-gray-700">{ev.note}</div>}
+                                    </div>
+                                  </div>
+                                </li>
+                              ))
+                            )}
+                          </ol>
+                        )}
+
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      );
+    }
 
     // Compare
     return (
@@ -937,7 +1126,8 @@ export default function AppliedSavedJobsHub() {
     allJobsForCompare,
     savedSet,
     appliedSet,
-    tipsData, tipsLoading, tipsError,   // NEW deps
+    tipsData, tipsLoading, tipsError,
+    appliedWithStatus, timelines, tlLoadingId, tlErrorId   // ← add these
   ]);
 
   return (
@@ -950,7 +1140,9 @@ export default function AppliedSavedJobsHub() {
         {tabButton("recommended", "Recommendations")}
         {tabButton("skilltest", "Skill Test")}
         {tabButton("compare", "Compare")}
-        {tabButton("tips", "Resume Design Tips (AI)")}   {/* NEW tab */}
+        {tabButton("tips", "Resume Design Tips (AI)")}
+        {tabButton("status", "Applications")}
+
       </div>
 
       {content}

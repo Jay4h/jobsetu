@@ -14,7 +14,7 @@ export interface CareerJobCardProps {
   experienceRequired?: number;
   isRemote?: boolean;
   isUrgent?: boolean;
-
+  showTimeline?: boolean
   // incoming status
   isApplied?: boolean;
   isSaved?: boolean;
@@ -49,6 +49,7 @@ export default function CareerJobCard({
   showAppliedBadge = true,
   dense = false,
   showSalary = true,
+  showTimeline = true,
 }: CareerJobCardProps) {
   // internal state
   const [saving, setSaving] = useState(false);
@@ -292,9 +293,11 @@ export default function CareerJobCard({
           {onWithdraw ? (
             <>
               <button onClick={() => onWithdraw(jobId)} className="btn btn-primary">Withdraw</button>
-              <button onClick={toggleTimeline} className="btn btn-ghost">
-                {timelineOpen ? "Hide timeline" : "Timeline"}
-              </button>
+             {showTimeline && (                      // ⬅️ only show when allowed
+            <button onClick={toggleTimeline} className="btn btn-ghost">
+              {timelineOpen ? "Hide timeline" : "Timeline"}
+            </button>
+          )}
             </>
           ) : onUnsave ? (
             <button onClick={() => onUnsave(jobId)} className="btn btn-ghost">Unsave</button>
@@ -324,7 +327,7 @@ export default function CareerJobCard({
       )}
 
       {/* timeline (Applied tab) */}
-      {onWithdraw && timelineOpen && (
+      {onWithdraw && showTimeline && timelineOpen &&(
         <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 w-full">
           <div className="mb-2 flex items-center justify-between">
             <h4 className="text-sm font-semibold text-gray-800">Application timeline</h4>
