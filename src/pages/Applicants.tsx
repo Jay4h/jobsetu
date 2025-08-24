@@ -191,39 +191,41 @@ export default function Applicants() {
     return m ? decodeURIComponent(m[1]) : null;
   }
 
-  const exportCsv = async () => {
-    if (!jobId) return;
-    try {
-      const res = await api.get(`/api/recruiter/export-applicants/${jobId}`, {
-        responseType: "blob",
-        headers: { Accept: "text/csv" },
-      });
+const exportCsv = async () => {
+  if (!jobId) return;
+  try {
+    const res = await api.get(`/api/recruiter/export-applicants/${jobId}`, {
+      responseType: "blob",
+      // Accept header optional; server sets it
+    });
 
-      // axios: headers is a plain object
-      const dispo =
-        (res as any).headers?.["content-disposition"] ??
-        (res as any).headers?.get?.("content-disposition");
-      const suggested = getFilenameFromDisposition(dispo);
-      const filename = suggested || `applicants_job_${jobId}.csv`;
+    const dispo =
+      (res as any).headers?.["content-disposition"] ??
+      (res as any).headers?.get?.("content-disposition");
+    const suggested = getFilenameFromDisposition(dispo);
+    const filename = suggested || `applicants_job_${jobId}.xlsx`;
 
-      const blob = new Blob([res.data], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
+    const blob = new Blob(
+      [res.data],
+      { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }
+    );
+    const url = URL.createObjectURL(blob);
 
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e: any) {
-      toast.error(
-        e?.response?.data?.message ||
-          e?.message ||
-          "Could not export applicants."
-      );
-    }
-  };
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e: any) {
+    toast.error(
+      e?.response?.data?.message || e?.message || "Could not export applicants."
+    );
+  }
+};
+
+
 
   const applKey = (a: ApplicantRow, i: number) =>
     a.applicationId ?? `${a.seeker.email}-${i}`;
