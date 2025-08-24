@@ -1,3 +1,4 @@
+// src/pages/SavedApplicants.tsx
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -30,34 +31,23 @@ export default function SavedApplicants() {
     try {
       const { data } = await api.get(`/api/recruiter/saved-applicants/${jobId}`);
 
-      // Normalize shapes coming from backend
       const list: SavedRow[] = (data?.applicants ?? data ?? []).map((x: any) => {
         const applicant = x.applicant ?? x.Applicant ?? {};
         return {
           applicationId: x.applicationId ?? x.ApplicationId ?? 0,
-          userId:
-            x.userId ??
-            x.UserId ??
-            applicant.userId ??
-            applicant.UserId ??
-            0,
+          userId: x.userId ?? x.UserId ?? applicant.userId ?? applicant.UserId ?? 0,
           appliedOn: x.appliedOn ?? x.AppliedOn ?? "",
           currentStatus: x.currentStatus ?? x.CurrentStatus ?? "Applied",
           isSaved: !!(x.isSaved ?? x.IsSaved ?? true),
           applicant: {
-            fullName:
-              applicant.fullName ?? applicant.FullName ?? "",
+            fullName: applicant.fullName ?? applicant.FullName ?? "",
             email: applicant.email ?? applicant.Email ?? "",
             phone: applicant.phone ?? applicant.Phone ?? "",
             Skills: applicant.Skills ?? applicant.skills,
             Experience: applicant.Experience ?? applicant.experience,
           },
           resumeFile:
-            x.resumeFile ??
-            x.ResumeFile ??
-            applicant.resume ??
-            applicant.Resume ??
-            null,
+            x.resumeFile ?? x.ResumeFile ?? applicant.resume ?? applicant.Resume ?? null,
         };
       });
 
@@ -87,7 +77,6 @@ export default function SavedApplicants() {
     }
   };
 
-  // Stable key for each row
   const rowKey = (a: SavedRow, i: number) =>
     a.applicationId || a.userId || `${a.applicant.email}-${i}`;
 
@@ -117,6 +106,7 @@ export default function SavedApplicants() {
                     className="text-sm underline mt-2 inline-block"
                     href={`${import.meta.env.VITE_API_BASE_URL}/Uploads/Resumes/${a.resumeFile}`}
                     target="_blank"
+                    rel="noreferrer"
                   >
                     View resume
                   </a>

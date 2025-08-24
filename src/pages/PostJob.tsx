@@ -1,6 +1,6 @@
 // src/pages/PostJob.tsx
-import { useMemo, useState } from "react";
-import api, { normalizeApiError } from "../lib/api";
+import { useMemo, useRef, useState } from "react";
+import api from "../lib/api";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
@@ -28,6 +28,18 @@ type FormState = {
   topCompanies: string;
 };
 
+// ---- helper: normalize API errors from wrapper or raw axios ----
+function extractApiError(err: any) {
+  const status = err?.status ?? err?.response?.status;
+  const data   = err?.data   ?? err?.response?.data;
+  const code   = typeof data === "object" ? data?.code : undefined;
+  const message =
+    (typeof data === "object" && (data?.message || data?.Message)) ||
+    err?.message ||
+    "Request failed";
+  return { status, code, message, data };
+}
+
 export default function PostJob() {
   const [f, setF] = useState<FormState>({
     title: "",
@@ -51,6 +63,10 @@ export default function PostJob() {
   });
   const [tags, setTags] = useState<string[]>([]);
   const [skills, setSkills] = useState<string[]>([]);
+  const [formError, setFormError] = useState<string>("");
+  const [submitting, setSubmitting] = useState(false);
+  const errRef = useRef<HTMLDivElement | null>(null);
+
   const nav = useNavigate();
 
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -69,6 +85,9 @@ export default function PostJob() {
           ? (e.currentTarget as HTMLInputElement).checked
           : e.currentTarget.value;
       setF((s) => ({ ...s, [k]: val as any }));
+      // clear banner when editing key fields
+      if (["title", "location", "experience", "salaryMin", "salaryMax", "description"].includes(k))
+        setFormError("");
     };
 
   function addChip(v: string, list: string[], setList: (x: string[]) => void) {
@@ -84,11 +103,17 @@ export default function PostJob() {
     e?.preventDefault();
 
     if (!f.title.trim() || !f.location.trim() || !f.description.trim()) {
-      toast.error("Title, Location, and Description are required.");
+      const msg = "Title, Location, and Description are required.";
+      setFormError(msg);
+      toast.error(msg);
+      errRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
     if (f.salaryMin && f.salaryMax && Number(f.salaryMin) > Number(f.salaryMax)) {
-      toast.error("Salary Min cannot be greater than Salary Max.");
+      const msg = "Salary Min cannot be greater than Salary Max.";
+      setFormError(msg);
+      toast.error(msg);
+      errRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
@@ -105,8 +130,6 @@ export default function PostJob() {
     );
     fd.append("isRemote", f.isRemote ? "true" : "false");
     fd.append("isUrgent", f.isUrgent ? "true" : "false");
-
-    // metadata that your backend writes into JobMetadata
     fd.append("industry", f.industry);
     fd.append("department", f.department);
     fd.append("companyType", f.companyType);
@@ -120,13 +143,30 @@ export default function PostJob() {
     fd.append("skills", skills.join(","));
 
     try {
+      setSubmitting(true);
       await api.post("/api/recruiter/post-job", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
+        headers: { Accept: "application/json" },
+        transformRequest: [(data, headers) => {
+          delete (headers as any)["Content-Type"]; // let browser set multipart boundary
+          return data;
+        }],
       });
-      toast.success("Job posted successfully");
+      setFormError("");
+      toast.success("Job posted");
       nav("/recruiter/jobs");
-    } catch (err) {
-      toast.error(normalizeApiError(err).message);
+    } catch (err: any) {
+      const { status, code, message, data } = extractApiError(err);
+
+      if (status === 409 || code === "DUPLICATE_JOB") {
+        setFormError(message);
+        toast.warning(message);
+      } else {
+        setFormError(message);
+        toast.error(message);
+      }
+      errRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -137,29 +177,80 @@ export default function PostJob() {
       </div>
 
       <form onSubmit={submit} className="rounded-2xl border bg-white shadow-sm p-6 space-y-6">
-        {/* Job details (everything lives here) */}
+        {formError && (
+          <div
+            ref={errRef}
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+            role="alert"
+          >
+            {formError}
+          </div>
+        )}
+
         <h2 className="text-lg font-medium">Job details</h2>
 
         <div className="grid md:grid-cols-2 gap-5">
           <Field label="Title" required>
-            <input className={inputCls} placeholder="e.g., Senior Frontend Engineer" value={f.title} onChange={up("title")} required />
+            <input
+              className={`${inputCls} ${formError ? "ring-1 ring-red-200" : ""}`}
+              placeholder="e.g., Senior Frontend Engineer"
+              value={f.title}
+              onChange={up("title")}
+              required
+            />
           </Field>
           <Field label="Location" required>
-            <input className={inputCls} placeholder="e.g., Bengaluru / Remote" value={f.location} onChange={up("location")} required />
+            <input
+              className={`${inputCls} ${formError ? "ring-1 ring-red-200" : ""}`}
+              placeholder="e.g., Bengaluru / Remote"
+              value={f.location}
+              onChange={up("location")}
+              required
+            />
           </Field>
 
           <Field label="Salary Min (₹)">
-            <input className={inputCls} type="number" min={0} step={1000} placeholder="e.g., 600000" value={f.salaryMin} onChange={up("salaryMin")} />
+            <input
+              className={inputCls}
+              type="number"
+              min={0}
+              step={1000}
+              placeholder="e.g., 600000"
+              value={f.salaryMin}
+              onChange={up("salaryMin")}
+            />
           </Field>
           <Field label="Salary Max (₹)">
-            <input className={inputCls} type="number" min={0} step={1000} placeholder="e.g., 1200000" value={f.salaryMax} onChange={up("salaryMax")} />
+            <input
+              className={inputCls}
+              type="number"
+              min={0}
+              step={1000}
+              placeholder="e.g., 1200000"
+              value={f.salaryMax}
+              onChange={up("salaryMax")}
+            />
           </Field>
 
           <Field label="Experience (years)">
-            <input className={inputCls} type="number" min={0} step={1} placeholder="e.g., 3" value={f.experience} onChange={up("experience")} />
+            <input
+              className={inputCls}
+              type="number"
+              min={0}
+              step={1}
+              placeholder="e.g., 3"
+              value={f.experience}
+              onChange={up("experience")}
+            />
           </Field>
           <Field label="Expiry Date">
-            <input className={inputCls} type="date" min={todayIso} value={f.expiryDate} onChange={up("expiryDate")} />
+            <input
+              className={inputCls}
+              type="date"
+              min={todayIso}
+              value={f.expiryDate}
+              onChange={up("expiryDate")}
+            />
           </Field>
         </div>
 
@@ -179,7 +270,6 @@ export default function PostJob() {
           />
         </Field>
 
-        {/* Optional fields (no heading) */}
         <div className="grid md:grid-cols-2 gap-5">
           <Field label="Industry"><input className={inputCls} value={f.industry} onChange={up("industry")} /></Field>
           <Field label="Department"><input className={inputCls} value={f.department} onChange={up("department")} /></Field>
@@ -210,7 +300,12 @@ export default function PostJob() {
         </div>
 
         <div className="flex items-center justify-end gap-3">
-          <button className="px-5 py-2 rounded-xl bg-black text-white hover:opacity-90">Post Job</button>
+          <button
+            className="px-5 py-2 rounded-xl bg-black text-white hover:opacity-90 disabled:opacity-60"
+            disabled={submitting}
+          >
+            {submitting ? "Posting…" : "Post Job"}
+          </button>
         </div>
       </form>
     </div>
@@ -319,4 +414,3 @@ function ChipInput({
     </div>
   );
 }
-

@@ -312,74 +312,73 @@ export default function Profile() {
       atsOptimization: data?.atsOptimization ?? data?.AtsOptimization ?? null,
     };
   }
+// Also normalize the trailing "viewed on DD-MM-YYYY HH:mm:ss" to IST (browser-safe).
+async function loadSeekerSummaryWithFallback() {
+  const [summaryRes, viewsRes] = await Promise.allSettled([
+    api.get<Summary>("/api/user/profile/summary", { meta: { ignoreGlobal401: true } as any }),
+    api.get("/api/user/resume/views", { meta: { ignoreGlobal401: true } as any }),
+  ]);
 
-  // Preferred: summary endpoint. Fallback to old endpoints when 404/not present.
-  async function loadSeekerSummaryWithFallback() {
-    try {
-      const { data } = await api.get<Summary>("/api/user/profile/summary", {
-        meta: { ignoreGlobal401: true } as any,
-      });
-      setSummary({
-        views: data?.views ?? { viewCount: 0, lastViewedBy: null },
-        saved: data?.saved ?? { total: 0, recent: [] },
-        applied: data?.applied ?? { total: 0, recent: [] },
-        ai: data?.ai ?? { lastResumeFitScore: undefined },
-      });
-      return;
-    } catch {
-      // Fallback: old endpoints
-      const [views, saved, applied] = await Promise.allSettled([
-        api.get("/api/user/resume/views", { meta: { ignoreGlobal401: true } as any }),
-        api.get("/api/user/saved-jobs", { meta: { ignoreGlobal401: true } as any }),
-        api.get("/api/user/applied-jobs", { meta: { ignoreGlobal401: true } as any }),
-      ]);
+  // start with defaults
+  let views = { viewCount: 0, lastViewedBy: null as string | null };
+  let saved = { total: 0, recent: [] as { createdAt: string; title: string; jobId: number }[] };
+  let applied = { total: 0, recent: [] as { appliedOn: string; title: string; jobId: number; currentStatus?: string }[] };
+  let ai: { lastResumeFitScore?: number | null } = { lastResumeFitScore: undefined };
 
-      // views
-      let viewCount = 0;
-      let lastViewedBy: string | null = null;
-      if (views.status === "fulfilled") {
-        const v = views.value.data;
-        viewCount = Number(v?.viewCount ?? 0);
-        lastViewedBy = v?.lastViewedBy ?? null;
-      }
+  // Convert "... viewed on DD/MM/YYYY HH:mm:ss" (or DD-MM-YYYY) which is in IST
+// to the viewer's local timezone and format as "DD/MM/YYYY HH:mm:ss".
+function normalizeViewedOn(str?: string | null) {
+  if (!str) return null;
 
-      // saved
-      let savedTotal = 0;
-      let savedRecent: { createdAt: string; title: string; jobId: number }[] = [];
-      if (saved.status === "fulfilled") {
-        const d = saved.value.data;
-        const list: any[] = Array.isArray(d) ? d : d?.savedJobs ?? d?.results ?? [];
-        savedTotal = Number(d?.total ?? list.length ?? 0);
-        savedRecent = list.slice(0, 3).map((x) => ({
-          createdAt: x?.CreatedAt ?? x?.createdAt ?? "",
-          title: x?.Title ?? x?.title ?? "Untitled job",
-          jobId: x?.JobId ?? x?.jobId ?? 0,
-        }));
-      }
+  // Accept both slashes and hyphens, and optional comma between date/time.
+  const m = str.match(/^(.*viewed on )(\d{2})[\/-](\d{2})[\/-](\d{4})[ ,]*(\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return str; // leave unknown formats alone
 
-      // applied
-      let appliedTotal = 0;
-      let appliedRecent: { appliedOn: string; title: string; jobId: number; currentStatus?: string }[] = [];
-      if (applied.status === "fulfilled") {
-        const d = applied.value.data;
-        const list: any[] = Array.isArray(d) ? d : d?.appliedJobs ?? d?.results ?? [];
-        appliedTotal = Number(d?.total ?? list.length ?? 0);
-        appliedRecent = list.slice(0, 3).map((x) => ({
-          appliedOn: x?.AppliedOn ?? x?.appliedOn ?? "",
-          title: x?.Title ?? x?.title ?? "Untitled job",
-          jobId: x?.JobId ?? x?.jobId ?? 0,
-          currentStatus: x?.CurrentStatus ?? x?.currentStatus,
-        }));
-      }
+  const [, prefix, dd, mm, yyyy, HH, MM, SS] = m;
 
-      setSummary({
-        views: { viewCount, lastViewedBy },
-        saved: { total: savedTotal, recent: savedRecent },
-        applied: { total: appliedTotal, recent: appliedRecent },
-        ai: { lastResumeFitScore: undefined },
-      });
-    }
+  // The server time is IST (UTC+05:30). Convert that IST timestamp -> UTC.
+  const IST_OFFSET_MIN = 330; // 5h 30m
+  const utcMs = Date.UTC(+yyyy, +mm - 1, +dd, +HH, +MM, +SS) - IST_OFFSET_MIN * 60 * 1000;
+
+  // Format in the user's local timezone (browser default).
+  const formatted = new Intl.DateTimeFormat("en-IN", {
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+    .format(new Date(utcMs))
+    .replace(",", ""); // "DD/MM/YYYY, HH:mm:ss" -> "DD/MM/YYYY HH:mm:ss"
+
+  return `${prefix}${formatted}`;
+}
+
+  // take what summary has first
+  if (summaryRes.status === "fulfilled") {
+    const data = summaryRes.value.data;
+    views = data?.views ?? views;
+    saved = data?.saved ?? saved;
+    applied = data?.applied ?? applied;
+    ai = data?.ai ?? ai;
   }
+
+  // prefer /resume/views for freshest counts + localizable timestamp
+  if (viewsRes.status === "fulfilled") {
+    const d: any = viewsRes.value.data;
+    views = {
+      viewCount: Number(d?.viewCount ?? views.viewCount ?? 0),
+      lastViewedBy: normalizeViewedOn(d?.lastViewedBy) ?? views.lastViewedBy ?? null,
+    };
+  }
+
+  setSummary({ views, saved, applied, ai });
+}
+
+
 
   async function loadRecruiterProfile() {
     const { data } = await api.get("/api/recruiter/profile");

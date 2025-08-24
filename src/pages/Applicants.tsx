@@ -11,11 +11,18 @@ type ApplicantRow = {
   statusHistory?: string;
   recruiterNotes?: string;
   score?: number | null;
+  userId?: number; // <-- needed for /api/resume/view/{userId}
   seeker: {
     fullName: string;
     email: string;
     phone: string;
     resume?: string | null;
+
+    // optional/tolerant extras
+    resumeViewCount?: number | null;
+    resumeLastViewedBy?: string | null;
+    experienceYears?: number | null;
+    skills?: string | null;
   };
 };
 
@@ -34,10 +41,15 @@ export default function Applicants() {
   const [rows, setRows] = useState<ApplicantRow[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // search + status
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("");
 
-  // ===== Notes + Public Feedback Modal State =====
+  // filters
+  const [minExp, setMinExp] = useState<number | "">("");
+  const [skill, setSkill] = useState("");
+
+  // modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [draftNote, setDraftNote] = useState("");
   const [draftFeedback, setDraftFeedback] = useState("");
@@ -58,7 +70,7 @@ export default function Applicants() {
   };
 
   const closeStatusModal = () => {
-    if (saving) return; // prevent closing while saving
+    if (saving) return;
     setModalOpen(false);
     setDraftNote("");
     setDraftFeedback("");
@@ -68,20 +80,18 @@ export default function Applicants() {
 
   useEffect(() => {
     if (!modalOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeStatusModal();
-    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeStatusModal();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [modalOpen, saving]);
 
+  // ---------- load (unfiltered) ----------
   const load = async () => {
     if (!jobId) return;
     setLoading(true);
     try {
       const { data } = await api.get(`/api/recruiter/applicants/${jobId}`);
-
-      const mapped: ApplicantRow[] = (data?.applicants ?? []).map((x: any) => {
+      const mapped: ApplicantRow[] = (data?.applicants ?? data ?? []).map((x: any) => {
         const seeker = x.seeker ?? x.Seeker ?? x.applicant ?? x.Applicant ?? {};
         return {
           applicationId: x.applicationId ?? x.ApplicationId,
@@ -90,27 +100,116 @@ export default function Applicants() {
           statusHistory: x.statusHistory ?? x.StatusHistory ?? "",
           recruiterNotes: x.recruiterNotes ?? x.RecruiterNotes ?? "",
           score: x.score ?? x.ResumeFitScore ?? x.FitScore ?? null,
+          userId: x.userId ?? x.UserId ?? seeker.userId ?? seeker.UserId ?? undefined, // <-- add it
           seeker: {
             fullName:
               seeker.fullName ?? seeker.FullName ?? x.fullName ?? x.FullName ?? "",
             email: seeker.email ?? seeker.Email ?? x.email ?? x.Email ?? "",
             phone: seeker.phone ?? seeker.Phone ?? x.phone ?? x.Phone ?? "",
             resume:
-              seeker.resume ??
-              seeker.Resume ??
-              x.resumeFile ??
-              x.ResumeFile ??
+              seeker.resume ?? seeker.Resume ?? x.resumeFile ?? x.ResumeFile ?? null,
+            resumeViewCount:
+              seeker.resumeViewCount ??
+              seeker.ResumeViewCount ??
+              x.resumeViewCount ??
+              x.ResumeViewCount ??
+              x.viewCount ??
+              x.ViewCount ??
               null,
+            resumeLastViewedBy:
+              seeker.resumeLastViewedBy ??
+              seeker.ResumeLastViewedBy ??
+              x.resumeLastViewedBy ??
+              x.ResumeLastViewedBy ??
+              x.lastViewedBy ??
+              x.LastViewedBy ??
+              null,
+            experienceYears:
+              seeker.experienceYears ??
+              seeker.ExperienceYears ??
+              x.experienceYears ??
+              x.ExperienceYears ??
+              null,
+            skills: seeker.skills ?? seeker.Skills ?? x.skills ?? x.Skills ?? null,
           },
         };
       });
-
       setRows(mapped);
-    } catch (e) {
-      toast.error(normalizeApiError(e).message);
+    } catch (e: any) {
+      toast.error(normalizeApiError(e).message || "Failed to load applicants.");
     } finally {
       setLoading(false);
     }
+  };
+
+  // ---------- load (filtered) ----------
+  const applyFilter = async () => {
+    if (!jobId) return;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("jobId", String(jobId));
+      if (minExp !== "") params.set("minExp", String(minExp));
+      if (skill.trim()) params.set("skill", skill.trim());
+      const { data } = await api.get(
+        `/api/recruiter/applicants/filter?${params.toString()}`
+      );
+
+      const mapped: ApplicantRow[] = (data?.applicants ?? data ?? []).map((x: any) => {
+        const seeker = x.seeker ?? x.Seeker ?? x.applicant ?? x.Applicant ?? {};
+        return {
+          applicationId: x.applicationId ?? x.ApplicationId,
+          appliedOn: x.appliedOn ?? x.AppliedOn ?? "",
+          currentStatus: x.currentStatus ?? x.CurrentStatus ?? "Applied",
+          statusHistory: x.statusHistory ?? x.StatusHistory ?? "",
+          recruiterNotes: x.recruiterNotes ?? x.RecruiterNotes ?? "",
+          score: x.score ?? x.ResumeFitScore ?? x.FitScore ?? null,
+          userId: x.userId ?? x.UserId ?? seeker.userId ?? seeker.UserId ?? undefined,
+          seeker: {
+            fullName:
+              seeker.fullName ?? seeker.FullName ?? x.fullName ?? x.FullName ?? "",
+            email: seeker.email ?? seeker.Email ?? x.email ?? x.Email ?? "",
+            phone: seeker.phone ?? seeker.Phone ?? x.phone ?? x.Phone ?? "",
+            resume:
+              seeker.resume ?? seeker.Resume ?? x.resumeFile ?? x.ResumeFile ?? null,
+            resumeViewCount:
+              seeker.resumeViewCount ??
+              seeker.ResumeViewCount ??
+              x.resumeViewCount ??
+              x.ResumeViewCount ??
+              x.viewCount ??
+              x.ViewCount ??
+              null,
+            resumeLastViewedBy:
+              seeker.resumeLastViewedBy ??
+              seeker.ResumeLastViewedBy ??
+              x.resumeLastViewedBy ??
+              x.ResumeLastViewedBy ??
+              x.lastViewedBy ??
+              x.LastViewedBy ??
+              null,
+            experienceYears:
+              seeker.experienceYears ??
+              seeker.ExperienceYears ??
+              x.experienceYears ??
+              x.ExperienceYears ??
+              null,
+            skills: seeker.skills ?? seeker.Skills ?? x.skills ?? x.Skills ?? null,
+          },
+        };
+      });
+      setRows(mapped);
+    } catch (e: any) {
+      toast.error(normalizeApiError(e).message || "Failed to filter applicants.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearFilter = () => {
+    setMinExp("");
+    setSkill("");
+    load();
   };
 
   useEffect(() => {
@@ -130,6 +229,7 @@ export default function Applicants() {
     });
   }, [rows, q, status]);
 
+  // ---------- status update ----------
   const updateStatus = async (
     applicationId: number,
     newStatus: string,
@@ -143,7 +243,7 @@ export default function Applicants() {
         ApplicationId: id,
         NewStatus: newStatus,
         Note: note || "",
-        PublicFeedback: publicFeedback || "", // candidate-visible feedback
+        PublicFeedback: publicFeedback || "",
       });
       toast.success("Status updated");
       setRows((old) =>
@@ -153,8 +253,8 @@ export default function Applicants() {
             : r
         )
       );
-    } catch (e) {
-      toast.error(normalizeApiError(e).message);
+    } catch (e: any) {
+      toast.error(normalizeApiError(e).message || "Failed to update status.");
     }
   };
 
@@ -169,6 +269,7 @@ export default function Applicants() {
     }
   };
 
+  // ---------- saved toggle ----------
   const toggleSaved = async (applicationId: number, wantSaved: boolean) => {
     const id = Number(applicationId);
     if (!id) return toast.error("Invalid application id");
@@ -177,55 +278,77 @@ export default function Applicants() {
         params: { applicationId: id, isSaved: wantSaved },
       });
       toast.success(wantSaved ? "Saved" : "Unsaved");
-    } catch (e) {
-      toast.error(normalizeApiError(e).message);
+    } catch (e: any) {
+      toast.error(normalizeApiError(e).message || "Failed to update save state.");
     }
   };
 
-  // ===== CSV Export =====
+  // ---------- view + increment resume ----------
+  async function handleViewResume(a: ApplicantRow) {
+    try {
+      if (!a.userId) {
+        toast.error("Missing user id for applicant.");
+        return;
+      }
+      const { data } = await api.get(`/api/resume/view/${a.userId}`);
+      // data => { FilePath, viewCount, lastViewedBy }
+      setRows((prev) =>
+        prev.map((r) =>
+          r.applicationId === a.applicationId
+            ? {
+                ...r,
+                seeker: {
+                  ...r.seeker,
+                  resume: data.FilePath ?? r.seeker.resume,
+                  resumeViewCount: data.viewCount ?? r.seeker.resumeViewCount,
+                  resumeLastViewedBy: data.lastViewedBy ?? r.seeker.resumeLastViewedBy,
+                },
+              }
+            : r
+        )
+      );
+      const url = `${import.meta.env.VITE_API_BASE_URL}/Uploads/Resumes/${data.FilePath}`;
+      window.open(url, "_blank", "noopener");
+    } catch (e: any) {
+      toast.error(normalizeApiError(e).message || "Could not open resume.");
+    }
+  }
 
-  // parse filename from Content-Disposition
+  // ---------- export ----------
   function getFilenameFromDisposition(h?: string | null) {
     if (!h) return null;
     const m = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(h);
     return m ? decodeURIComponent(m[1]) : null;
   }
 
-const exportCsv = async () => {
-  if (!jobId) return;
-  try {
-    const res = await api.get(`/api/recruiter/export-applicants/${jobId}`, {
-      responseType: "blob",
-      // Accept header optional; server sets it
-    });
-
-    const dispo =
-      (res as any).headers?.["content-disposition"] ??
-      (res as any).headers?.get?.("content-disposition");
-    const suggested = getFilenameFromDisposition(dispo);
-    const filename = suggested || `applicants_job_${jobId}.xlsx`;
-
-    const blob = new Blob(
-      [res.data],
-      { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }
-    );
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  } catch (e: any) {
-    toast.error(
-      e?.response?.data?.message || e?.message || "Could not export applicants."
-    );
-  }
-};
-
-
+  const exportCsv = async () => {
+    if (!jobId) return;
+    try {
+      const res = await api.get(`/api/recruiter/export-applicants/${jobId}`, {
+        responseType: "blob",
+      });
+      const dispo =
+        (res as any).headers?.["content-disposition"] ??
+        (res as any).headers?.get?.("content-disposition");
+      const suggested = getFilenameFromDisposition(dispo);
+      const filename = suggested || `applicants_job_${jobId}.xlsx`;
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast.error(
+        e?.response?.data?.message || e?.message || "Could not export applicants."
+      );
+    }
+  };
 
   const applKey = (a: ApplicantRow, i: number) =>
     a.applicationId ?? `${a.seeker.email}-${i}`;
@@ -234,7 +357,8 @@ const exportCsv = async () => {
     <div className="max-w-7xl mx-auto px-4 lg:px-6 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Applicants</h1>
-        <div className="flex items-center gap-2">
+
+        <div className="flex flex-wrap items-center gap-2">
           <input
             placeholder="Search name / email / phone"
             className="border rounded px-3 py-2 w-64"
@@ -253,10 +377,32 @@ const exportCsv = async () => {
               </option>
             ))}
           </select>
-          <button
-            onClick={exportCsv}
-            className="rounded border px-3 py-2 hover:bg-gray-50"
-          >
+
+          <input
+            type="number"
+            min={0}
+            value={minExp}
+            onChange={(e) =>
+              setMinExp(e.target.value === "" ? "" : Number(e.target.value))
+            }
+            placeholder="Min Exp (yrs)"
+            className="border rounded px-3 py-2 w-36"
+            title="Min experience"
+          />
+          <input
+            value={skill}
+            onChange={(e) => setSkill(e.target.value)}
+            placeholder="Skill (e.g., React)"
+            className="border rounded px-3 py-2 w-44"
+            title="Skill keyword"
+          />
+          <button onClick={applyFilter} className="rounded border px-3 py-2 hover:bg-gray-50">
+            Filter
+          </button>
+          <button onClick={clearFilter} className="rounded border px-3 py-2 hover:bg-gray-50">
+            Clear
+          </button>
+          <button onClick={exportCsv} className="rounded border px-3 py-2 hover:bg-gray-50">
             Export CSV
           </button>
         </div>
@@ -269,51 +415,57 @@ const exportCsv = async () => {
       ) : (
         <ul className="space-y-4">
           {filtered.map((a, i) => (
-            <li
-              key={applKey(a, i)}
-              className="border rounded-xl p-4 flex items-start justify-between"
-            >
+            <li key={applKey(a, i)} className="border rounded-xl p-4 flex items-start justify-between">
               <div className="pr-4">
                 <div className="font-medium">{a.seeker.fullName}</div>
                 <div className="text-sm text-gray-600">
                   {a.seeker.email} • {a.seeker.phone}
                 </div>
+
                 <div className="text-xs text-gray-500 mt-1">
-                  Applied: {a.appliedOn} • Fit score:{" "}
-                  {a.score == null ? "—" : a.score}
+                  Applied: {a.appliedOn} • Fit score: {a.score == null ? "—" : a.score}
                 </div>
 
-                {a.seeker.resume && (
-                  <a
+                {(a.seeker.resumeViewCount != null || a.seeker.resumeLastViewedBy) && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Views: {a.seeker.resumeViewCount ?? 0}
+                    {a.seeker.resumeLastViewedBy
+                      ? ` • Last viewed by: ${a.seeker.resumeLastViewedBy}`
+                      : ""}
+                  </div>
+                )}
+
+                {(a.seeker.experienceYears != null || a.seeker.skills) && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    {a.seeker.experienceYears != null &&
+                      `Exp: ${a.seeker.experienceYears} yrs`}
+                    {a.seeker.experienceYears != null && a.seeker.skills ? " • " : ""}
+                    {a.seeker.skills && `Skills: ${a.seeker.skills}`}
+                  </div>
+                )}
+
+                {(a.seeker.resume || a.userId) && (
+                  <button
+                    type="button"
+                    onClick={() => handleViewResume(a)}
                     className="text-sm underline mt-2 inline-block"
-                    href={`${
-                      import.meta.env.VITE_API_BASE_URL
-                    }/Uploads/Resumes/${a.seeker.resume}`}
-                    target="_blank"
-                    rel="noreferrer"
                   >
                     View resume
-                  </a>
+                  </button>
                 )}
 
                 {a.recruiterNotes && (
                   <div className="text-xs text-gray-700 bg-gray-50 border rounded mt-3 p-2">
-                    <span className="font-medium">Private note:</span>{" "}
-                    {a.recruiterNotes}
+                    <span className="font-medium">Private note:</span> {a.recruiterNotes}
                   </div>
                 )}
               </div>
 
               <div className="flex items-center gap-3">
-                {/* Change status opens modal with both private note + public feedback */}
                 <select
                   value={a.currentStatus}
                   onChange={(e) =>
-                    openStatusModal(
-                      a.applicationId,
-                      e.target.value,
-                      a.recruiterNotes
-                    )
+                    openStatusModal(a.applicationId, e.target.value, a.recruiterNotes)
                   }
                   className="border rounded px-2 py-2"
                 >
@@ -324,14 +476,9 @@ const exportCsv = async () => {
                   ))}
                 </select>
 
-                {/* Add/Edit note without changing status */}
                 <button
                   onClick={() =>
-                    openStatusModal(
-                      a.applicationId,
-                      a.currentStatus,
-                      a.recruiterNotes
-                    )
+                    openStatusModal(a.applicationId, a.currentStatus, a.recruiterNotes)
                   }
                   className="px-3 py-2 rounded border hover:bg-gray-50"
                 >
@@ -357,31 +504,21 @@ const exportCsv = async () => {
       )}
 
       <div className="mt-8">
-        <Link
-          to={`/recruiter/jobs/${jobId}/saved`}
-          className="underline text-sm"
-        >
+        <Link to={`/recruiter/jobs/${jobId}/saved`} className="underline text-sm">
           View saved applicants
         </Link>
       </div>
 
-      {/* ===== Status change / Note modal ===== */}
       {modalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          onClick={closeStatusModal}
-        >
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={closeStatusModal}>
           <div className="absolute inset-0 bg-black/40" />
           <div
             className="relative bg-white rounded-2xl shadow-xl w-full max-w-xl p-5"
-            onClick={(e) => e.stopPropagation()} // prevent backdrop close when clicking inside
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold">
-                Update Status to{" "}
-                <span className="text-blue-600">
-                  {targetStatus || "Applied"}
-                </span>
+                Update Status to <span className="text-blue-600">{targetStatus || "Applied"}</span>
               </h2>
               <button
                 className="text-gray-500 hover:text-gray-800"
@@ -393,9 +530,7 @@ const exportCsv = async () => {
               </button>
             </div>
 
-            <label className="block text-sm font-medium mb-1">
-              Private note (recruiter only)
-            </label>
+            <label className="block text-sm font-medium mb-1">Private note (recruiter only)</label>
             <textarea
               className="w-full border rounded p-2 mb-4"
               rows={3}
@@ -418,18 +553,12 @@ const exportCsv = async () => {
             />
 
             <div className="flex justify-end gap-2">
-              <button
-                className="px-4 py-2 border rounded"
-                onClick={closeStatusModal}
-                disabled={saving}
-              >
+              <button className="px-4 py-2 border rounded" onClick={closeStatusModal} disabled={saving}>
                 Cancel
               </button>
               <button
                 className={`px-4 py-2 rounded ${
-                  saving
-                    ? "bg-gray-400 text-white"
-                    : "bg-blue-600 text-white hover:bg-blue-700"
+                  saving ? "bg-gray-400 text-white" : "bg-blue-600 text-white hover:bg-blue-700"
                 }`}
                 onClick={confirmStatusChange}
                 disabled={saving}
