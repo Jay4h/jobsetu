@@ -1,6 +1,6 @@
 // src/pages/AppliedSavedJobsHub.tsx
 import { useEffect, useMemo, useState } from "react";
-import api from "../lib/api";
+import api, { getRoleFromToken } from "../lib/api";
 import CareerJobCard from "../components/CareerJobCard";
 
 /* ---------- Helpers ---------- */
@@ -10,7 +10,6 @@ const BASE =
 const SKILL_POST = "/api/resume/skill-test";
 const SKILL_HISTORY = "/api/resume/skill-test-history";
 /* NEW: AI resume tips endpoint */
-const RESUME_TIPS = "/api/resume/design-tips";
 const STATUS_BADGE: Record<string, string> = {
   Applied: "bg-gray-100 text-gray-700",
   Shortlisted: "bg-sky-100 text-sky-700",
@@ -158,6 +157,14 @@ function normalizeStatus(v: any) {
     "Applied"
   );
 }
+function guardForJobSeeker(action: "apply" | "save") {
+  const role = getRoleFromToken?.();
+  if (role && role !== "JobSeeker") {
+    alert(`You're signed in as a Recruiter. Only Job Seekers can ${action}.`);
+    return false;
+  }
+  return true;
+}
 
 /* ---------- Skill Test Module (Submit + History) ---------- */
 function SkillTestModule({
@@ -227,8 +234,8 @@ function SkillTestModule({
       setSubTab("history");
       await onRefresh();
     } catch (e) {
-     console.error("Compare failed:", e);
-  alert(getAxiosMessage(e, "Could not compare selected jobs."));
+      console.error("Compare failed:", e);
+      alert(getAxiosMessage(e, "Could not compare selected jobs."));
     } finally {
       setSaving(false);
     }
@@ -408,96 +415,6 @@ function SkillTestModule({
 
 /* =================================================================== */
 /* ======================  NEW: Tips Dashboard  ====================== */
-
-type ResumeTip = { section?: string; advice?: string; priority?: string | null };
-type ResumeTipsPayload = {
-  score?: number;
-  keywords?: string[];
-  tips?: ResumeTip[];
-};
-
-function ResumeTipsDashboard({
-  data,
-  loading,
-  error,
-}: {
-  data: ResumeTipsPayload | null;
-  loading: boolean;
-  error?: string | null;
-}) {
-  if (loading) return <p>Loading tips…</p>;
-  if (error) return <p className="text-red-600">{error}</p>;
-  const score = Math.max(0, Math.min(100, Number(data?.score ?? 0)));
-  const keywords = data?.keywords ?? [];
-  const tips = Array.isArray(data?.tips) ? data!.tips! : [];
-
-  // group tips by section
-  const bySection = tips.reduce<Record<string, ResumeTip[]>>((acc, t) => {
-    const key = (t.section && String(t.section).trim()) || "General";
-    (acc[key] ||= []).push(t);
-    return acc;
-  }, {});
-
-  return (
-    <div className="space-y-6">
-      {/* Score */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Resume Design Tips Dashboard (via AI)</h3>
-          <div className="min-w-[220px]">
-            <div className="text-sm text-gray-600 mb-1">Overall Resume Score</div>
-            <div className="h-3 w-full rounded bg-gray-200 overflow-hidden">
-              <div
-                className={`${score >= 75 ? "bg-emerald-500" : score >= 50 ? "bg-blue-500" : "bg-amber-500"} h-3`}
-                style={{ width: `${score}%` }}
-              />
-            </div>
-            <div className="text-right text-sm font-medium mt-1">{score}%</div>
-          </div>
-        </div>
-        {/* Keywords */}
-        <div className="mt-4">
-          <div className="text-sm text-gray-600 mb-2">Suggested/Missing Keywords</div>
-          {keywords.length ? (
-            <div className="flex flex-wrap gap-2">
-              {keywords.map((k, i) => (
-                <span key={i} className="chip">{k}</span>
-              ))}
-            </div>
-          ) : (
-            <div className="text-sm text-gray-500">No keyword suggestions right now.</div>
-          )}
-        </div>
-      </div>
-
-      {/* Tips grouped by section */}
-      <div className="grid md:grid-cols-2 gap-4">
-        {Object.keys(bySection).length === 0 ? (
-          <div className="text-gray-600">No tips available.</div>
-        ) : (
-          Object.entries(bySection).map(([section, list]) => (
-            <div key={section} className="rounded-2xl border border-gray-200 bg-white p-4">
-              <div className="font-semibold mb-2">{section}</div>
-              <ul className="list-disc pl-5 space-y-2">
-                {list.map((t, idx) => (
-                  <li key={idx} className="text-sm text-gray-700">
-                    {t.advice || "—"}
-                    {t.priority ? (
-                      <span className="ml-2 inline-block text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 align-middle">
-                        {t.priority}
-                      </span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* =================================================================== */
 
 export default function AppliedSavedJobsHub() {
@@ -519,9 +436,6 @@ export default function AppliedSavedJobsHub() {
   const appliedSet = useMemo(() => new Set(appliedJobs.map(j => j.jobId)), [appliedJobs]);
 
   /* NEW: AI tips state */
-  const [tipsLoading, setTipsLoading] = useState(false);
-  const [tipsData, setTipsData] = useState<ResumeTipsPayload | null>(null);
-  const [tipsError, setTipsError] = useState<string | null>(null);
   const [appliedWithStatus, setAppliedWithStatus] = useState<any[]>([]);
   const [timelines, setTimelines] = useState<Record<number, ApplicationEvent[]>>({});
   const [tlLoadingId, setTlLoadingId] = useState<number | null>(null);
@@ -579,23 +493,6 @@ export default function AppliedSavedJobsHub() {
             : (res.data?.tests ?? res.data?.Tests ?? res.data?.history ?? res.data?.History ?? res.data?.results ?? res.data?.data ?? []);
           const norm = (Array.isArray(list) ? list : []).map(normalizeSkillTest);
           if (!cancelled) setSkillHistory(norm);
-
-        } else if (activeTab === "tips") {
-          setTipsLoading(true);
-          setTipsError(null);
-          try {
-            const res = await api.get(RESUME_TIPS);
-            if (!cancelled) setTipsData(res.data || {});
-          } catch (e: any) {
-            console.error("AI resume tips failed:", e);
-            const msg =
-              e?.response?.data?.message ||
-              e?.message ||
-              "Could not load resume tips.";
-            if (!cancelled) setTipsError(msg);
-          } finally {
-            if (!cancelled) setTipsLoading(false);
-          }
 
         } else if (activeTab === "status") {
           const res = await api.get("/api/user/applied-jobs", { params: { page: 1, limit: 100 } });
@@ -939,10 +836,6 @@ export default function AppliedSavedJobsHub() {
         />
       );
     }
-
-    if (activeTab === "tips") {
-      return <ResumeTipsDashboard data={tipsData} loading={tipsLoading} error={tipsError} />;
-    }
     if (activeTab === "status") {
       // group by status
       const groups = appliedWithStatus.reduce<Record<string, any[]>>((acc, j) => {
@@ -1135,7 +1028,6 @@ export default function AppliedSavedJobsHub() {
     allJobsForCompare,
     savedSet,
     appliedSet,
-    tipsData, tipsLoading, tipsError,
     appliedWithStatus, timelines, tlLoadingId, tlErrorId   // ← add these
   ]);
 
@@ -1149,7 +1041,6 @@ export default function AppliedSavedJobsHub() {
         {tabButton("recommended", "Recommendations")}
         {tabButton("skilltest", "Skill Test")}
         {tabButton("compare", "Compare")}
-        {tabButton("tips", "Resume Design Tips (AI)")}
         {tabButton("status", "Applications")}
 
       </div>

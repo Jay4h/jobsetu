@@ -62,6 +62,8 @@ export default function JobCard(props: JobCardProps) {
       throw e;
     }
   }
+ 
+
 
   function extractMessage(err: any): string | undefined {
     // normalized error
@@ -156,34 +158,58 @@ export default function JobCard(props: JobCardProps) {
     }
   }
 
-  async function handleApply() {
-    if (!requireJobSeeker("apply")) return;
-    if (applied || applying) return;
-    setApplying(true);
-    try {
-      await postWithId("/api/jobs/apply", jobId);
-      setApplied(true);
-      await refreshStatus(); // ensure backend truth
-    } catch (err: any) {
-      const status = Number(err?.status);
-      const msg = extractMessage(err) || "";
+async function handleApply() {
+  if (!requireJobSeeker("apply")) return;
+  if (applied || applying) return;
 
-      if (status === 401 || status === 403) {
-        alert("Please log in as a Job Seeker to apply.");
-      } else if (/already\s*applied/i.test(msg)) {
-        setApplied(true);
-        alert("You already applied to this job.");
-      } else if (status === 400 && !msg) {
-        const inferred = await refreshStatusAndInfer();
-        if (inferred !== "unknown") return;
-        alert("Couldn't apply to this job. Please try again.");
-      } else {
-        alert(msg || "Couldn't apply to this job. Please try again.");
-      }
-    } finally {
-      setApplying(false);
+  setApplying(true);
+  try {
+    const res = await postWithId("/api/jobs/apply", jobId);
+    const d = res?.data || {};
+
+    // cases returned as 200 OK by backend
+    if (d.needResume) {
+      alert(d.message || "Please upload your resume before applying.");
+      setApplied(false);
+      return;
     }
+    if (d.autoRejected) {
+      // e.g. rule: "LocationMismatch" | "ExperienceMismatch"
+      alert(d.message || `Application auto-rejected${d.rule ? `: ${d.rule}` : ""}.`);
+      setApplied(false);
+      return;
+    }
+    if (d.alreadyApplied) {
+      setApplied(true);
+      alert(d.message || "Already applied.");
+      return;
+    }
+
+    // success path
+    if (d.applied) {
+      setApplied(true);
+      // optional: alert(d.message || "Application submitted.");
+    } else {
+      // unexpected but non-fatal
+      alert(d.message || "Could not confirm application.");
+    }
+
+    await refreshStatus(); // keep UI in sync with server
+  } catch (err: any) {
+    // network/real error fallback
+    const status = Number(err?.status);
+    const msg = extractMessage(err) || "";
+    if (status === 401 || status === 403) {
+      alert("Please log in as a Job Seeker to apply.");
+    } else {
+      alert(msg || "Couldn't apply to this job. Please try again.");
+      await refreshStatus();
+    }
+  } finally {
+    setApplying(false);
   }
+}
+
 
   const salaryText =
     salaryMin != null || salaryMax != null

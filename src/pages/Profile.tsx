@@ -491,10 +491,19 @@ export default function Profile() {
   /* ---------- computed ---------- */
   const seekerSkillTags = useMemo(() => {
     if (!seeker?.skills) return [];
-    return String(seeker.skills)
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    // split, trim, drop empties
+    const raw = String(seeker.skills).split(",").map(s => s.trim()).filter(Boolean);
+    // case-insensitive dedupe, but keep original display text of first occurrence
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const s of raw) {
+      const k = s.toLowerCase();
+      if (!seen.has(k)) {
+        seen.add(k);
+        unique.push(s);
+      }
+    }
+    return unique;
   }, [seeker?.skills]);
 
   const memberSince = (seeker?.createdAt ?? recruiter?.createdAt) || null;
@@ -600,22 +609,31 @@ export default function Profile() {
     setScoring(true);
     try {
       const { data } = await api.post("/api/resume/score");
-      const newScore = Number(data?.score ?? 0);
 
-      const breakdown = {
-        matchedSkills: data?.matchedSkills ?? [],
-        matchedKeywords: data?.matchedKeywords ?? data?.keywords ?? [],
-        wordCount: data?.wordCount ?? undefined,
-      };
-      setScoreBreakdown(breakdown);
+      const newScore = Number(data?.score ?? data?.Score ?? 0);
 
-      setSeeker(prev => (prev ? { ...prev, resumeScore: newScore } : prev));
+      // expose breakdown if backend sent it
+      setScoreBreakdown({
+        matchedSkills: data?.matchedSkills ?? data?.MatchedSkills ?? [],
+        matchedKeywords: data?.matchedKeywords ?? data?.MatchedKeywords ?? data?.keywords ?? [],
+        wordCount: data?.wordCount ?? data?.WordCount,
+      });
+
+      // optimistic UI + also refresh from server (authoritative)
+      setSeeker((prev) => (prev ? { ...prev, resumeScore: newScore } : prev));
+      await loadSeekerProfile();
     } catch (err: any) {
-      alert(err?.response?.data?.message || err?.message || "Failed to score resume");
+      console.error("Rescore failed:", err?.response || err); // <-- see DevTools
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to score resume";
+      alert(msg);
     } finally {
-      setScoring(false);
+      setScoring(false); // <-- ensures button re-enables even on error
     }
   }
+
 
   /* ---------- AI TOOLS actions ---------- */
   async function generateFitScore() {
@@ -991,8 +1009,8 @@ export default function Profile() {
                 value={
                   seekerSkillTags.length ? (
                     <div className="flex flex-wrap gap-1">
-                      {seekerSkillTags.map((t) => (
-                        <span key={t} className="chip">{t}</span>
+                      {seekerSkillTags.map((t, i) => (
+                        <span key={`${t}-${i}`} className="chip">{t}</span>
                       ))}
                     </div>
                   ) : "—"
@@ -1137,6 +1155,7 @@ export default function Profile() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-sm text-gray-600">You haven’t generated a resume score yet.</div>
                   <button
+                    type="button"
                     className="btn btn-primary"
                     onClick={generateResumeScore}
                     disabled={scoring}
@@ -1155,6 +1174,7 @@ export default function Profile() {
                       <div className="text-3xl font-semibold">{seeker.resumeScore}/100</div>
                     </div>
                     <button
+                      type="button"
                       className="btn btn-ghost"
                       onClick={generateResumeScore}
                       disabled={scoring}

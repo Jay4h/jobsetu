@@ -48,6 +48,7 @@ export default function RecruiterAnalytics() {
   const [topN, setTopN] = useState<number>(8);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
+
   /* ---------- Load summary analytics ---------- */
   useEffect(() => {
     let alive = true;
@@ -188,10 +189,20 @@ export default function RecruiterAnalytics() {
   /* ---------- Skill chart helpers ---------- */
   const thresholdColor = (pct: number) =>
     pct < 50 ? "#ef4444" : pct < 75 ? "#f59e0b" : "#22c55e";
-
+  // keep this where it is
   const fullData = (skills || [])
     .slice(0, Math.max(1, topN))
     .map((s) => ({ skill: s.name, match: Math.max(0, Math.min(100, s.matchPct)) }));
+
+  // ⬇️ ADD right below fullData
+
+  const maxMatchVal = Math.max(0, ...fullData.map(d => Number(d.match || 0)));
+  const yMax = Math.min(100, Math.max(40, Math.ceil((maxMatchVal + 10) / 10) * 10));
+
+  const headroom = maxMatchVal >= 100 ? 5 : 0;
+  const yMaxDisplay = Math.min(110, yMax + headroom);
+  const yTicks = [0, 25, 50, 75, 100].filter(v => v <= yMaxDisplay);
+  if (!yTicks.includes(yMaxDisplay)) yTicks.push(yMaxDisplay);
 
   const avgMatch = useMemo(() => {
     if (!fullData.length) return 0;
@@ -246,7 +257,7 @@ export default function RecruiterAnalytics() {
                             0,
                             (row.count /
                               Math.max(1, Math.max(...breakdownRows.map((b) => b.count)))) *
-                              100
+                            100
                           )
                         )}%`,
                       }}
@@ -306,168 +317,140 @@ export default function RecruiterAnalytics() {
       </div>
 
       {/* Skill Match % */}
-      <div className="rounded-xl border overflow-hidden bg-white">
-        {/* Header / Toolbar */}
-        <div className="flex items-center gap-3 px-3 py-2.5 border-b">
-          <div className="font-medium text-sm">Skill Match % (per job)</div>
-          <div className="ml-auto flex items-center gap-2">
-            <label className="text-[11px] text-gray-500">Top</label>
-            <select
-              className="h-7 px-2 rounded-md border text-xs"
-              value={topN}
-              onChange={(e) => setTopN(Number(e.target.value))}
-            >
-              {[6, 8, 10, 12, 15].map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
+      {/* Skill Match % (same width as the small panels) */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div
+          className="rounded-xl border overflow-hidden bg-white"
+          style={{ minHeight: 300 }}   // +32px taller
+        >
+          {/* Header / Toolbar (compact) */}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b">
+            <div className="font-medium text-sm">Skill Match % (per job)</div>
+            <div className="ml-auto flex items-center gap-2">
+              <label className="text-[11px] text-gray-500">Top</label>
+              <select className="h-6 px-2 rounded-md border text-xs" value={topN}
+                onChange={(e) => setTopN(Number(e.target.value))}>
+                {[6, 8, 10, 12, 15].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
 
-            <div className="inline-flex rounded-md border p-0.5">
-              <button
-                className={`h-7 px-2.5 text-xs rounded ${chartType === "bar" ? "bg-gray-900 text-white" : "text-gray-700"}`}
-                onClick={() => setChartType("bar")}
+              <div className="inline-flex rounded-md border p-0.5">
+                <button
+                  className={`h-6 px-2 text-xs rounded ${chartType === "bar" ? "bg-gray-900 text-white" : "text-gray-700"}`}
+                  onClick={() => setChartType("bar")}
+                >Bar</button>
+                <button
+                  className={`h-6 px-2 text-xs rounded ${chartType === "radar" ? "bg-gray-900 text-white" : "text-gray-700"}`}
+                  onClick={() => setChartType("radar")}
+                >Radar</button>
+              </div>
+
+              <select
+                className="h-6 px-2 rounded-md border text-xs min-w-[200px]"
+                value={selJobId === "" ? "" : String(selJobId)}
+                onChange={(e) => setSelJobId(e.target.value ? Number(e.target.value) : "")}
+                disabled={jobs.length === 0}
               >
-                Bar
-              </button>
-              <button
-                className={`h-7 px-2.5 text-xs rounded ${chartType === "radar" ? "bg-gray-900 text-white" : "text-gray-700"}`}
-                onClick={() => setChartType("radar")}
-              >
-                Radar
-              </button>
+                {jobs.length === 0 ? <option value="">No jobs found</option> :
+                  jobs.map(j => <option key={j.jobId} value={j.jobId}>{j.title}</option>)}
+              </select>
             </div>
-
-            <select
-              className="h-7 px-2 rounded-md border text-xs min-w-[200px]"
-              value={selJobId === "" ? "" : String(selJobId)}
-              onChange={(e) => setSelJobId(e.target.value ? Number(e.target.value) : "")}
-              disabled={jobs.length === 0}
-            >
-              {jobs.length === 0 ? (
-                <option value="">No jobs found</option>
-              ) : (
-                jobs.map((j) => (
-                  <option key={j.jobId} value={j.jobId}>
-                    {j.title}
-                  </option>
-                ))
-              )}
-            </select>
           </div>
-        </div>
 
-        {/* Body */}
-        <div className="px-3 py-2">
-          {skillLoading && <EmptyText>Loading…</EmptyText>}
-          {skillErr && <div className="text-sm text-red-600">{skillErr}</div>}
-          {!skillLoading && !skillErr && fullData.length === 0 && (
-            <EmptyText>No skill match data for this job.</EmptyText>
-          )}
+          {/* Body */}
+          <div className="px-3 py-2">
+            {skillLoading && <div className="text-sm text-gray-500">Loading…</div>}
+            {skillErr && <div className="text-sm text-red-600">{skillErr}</div>}
+            {!skillLoading && !skillErr && fullData.length === 0 && (
+              <div className="text-sm text-gray-500">No skill match data for this job.</div>
+            )}
 
-          {!skillLoading && !skillErr && fullData.length > 0 && (
-            <div style={{ width: "100%", height: 220 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                {chartType === "bar" ? (
-                  <BarChart
-                    data={fullData}
-                    /* Top margin is a bit larger so the 100% labels are not clipped */
-                    margin={{ top: 30, right: 0, bottom: 18, left: 0 }}
-                    barCategoryGap={8}
-                    barGap={2}
-                  >
-                    <CartesianGrid vertical={false} stroke="#eef2f7" />
-                    <XAxis
-                      dataKey="skill"
-                      tickLine={false}
-                      axisLine={false}
-                      height={36}
-                      tick={<TruncTick />}
-                      /* remove side padding so bars touch the edges better */
-                      padding={{ left: 0, right: 0 }}
-                    />
-                    <YAxis
-                      domain={[0, 100]}
-                      tick={{ fontSize: 10, fill: "#6b7280" }}
-                      tickFormatter={(v) => `${v}%`}
-                      tickLine={false}
-                      axisLine={false}
-                      width={30}
-                    />
-                    {/* Thresholds */}
-                    <ReferenceLine y={50} stroke="#f59e0b" strokeDasharray="3 3" />
-                    <ReferenceLine y={75} stroke="#22c55e" strokeDasharray="3 3" />
-                    {/* Average */}
-                    <ReferenceLine
-                      y={avgMatch}
-                      stroke="#0ea5e9"
-                      strokeDasharray="4 4"
-                      label={{ value: `Avg ${avgMatch}%`, position: "right", fill: "#0ea5e9", fontSize: 10 }}
-                    />
-                    <Tooltip content={<RichSkillTooltip />} />
-
-                    <Bar
-                      dataKey="match"
-                      radius={[6, 6, 0, 0]}
-                      barSize={40}
-                      isAnimationActive
-                      animationDuration={400}
-                      onMouseMove={(_, idx) => setActiveIndex(idx)}
-                      onMouseLeave={() => setActiveIndex(null)}
+            {!skillLoading && !skillErr && fullData.length > 0 && (
+              <div className="w-full" style={{ height: 150 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  {chartType === "bar" ? (
+                    <BarChart
+                      data={fullData}
+                      margin={{ top: 24, right: 8, bottom: 12, left: 0 }}   // more top room
+                      barCategoryGap={6}
+                      barGap={1}
                     >
-                      {fullData.map((d, i) => {
-                        const base = thresholdColor(d.match);
-                        const fill =
-                          activeIndex === null ? base : activeIndex === i ? base : "#e5e7eb";
-                        return <Cell key={i} fill={fill} cursor="pointer" />;
-                      })}
-                      <LabelList
-                        dataKey="match"
-                        position="top"
-                        offset={6}
-                        style={{ fontSize: 10, fontWeight: 600, fill: "#111827" }}
-                        formatter={(value: any) => `${Math.round(Number(value))}%`}
+                      <CartesianGrid vertical={false} stroke="#eef2f7" />
+                      <XAxis
+                        dataKey="skill"
+                        tickLine={false}
+                        axisLine={false}
+                        height={32}
+                        tick={<TruncTick />}
+                        padding={{ left: 2, right: 2 }}
                       />
-                    </Bar>
-                  </BarChart>
-                ) : (
-                  <RadarChart data={radarData} outerRadius="78%">
-                    <PolarGrid stroke="#eef2f7" />
-                    <PolarAngleAxis dataKey="skill" tick={{ fontSize: 9 }} />
-                    <PolarRadiusAxis
-                      angle={30}
-                      domain={[0, 100]}
-                      tickFormatter={(v) => `${v}%`}
-                      tick={{ fontSize: 9 }}
-                    />
-                    <Tooltip content={<RichSkillTooltip />} />
-                    <Radar
-                      name="Match"
-                      dataKey="match"
-                      stroke="#2563eb"
-                      fill="#93c5fd"
-                      fillOpacity={0.55}
-                    />
-                    <Radar
-                      name="Average"
-                      dataKey="avg"
-                      stroke="#0ea5e9"
-                      fillOpacity={0}
-                      strokeDasharray="4 4"
-                    />
-                  </RadarChart>
-                )}
-              </ResponsiveContainer>
-            </div>
-          )}
+                      <YAxis
+                        domain={[0, yMaxDisplay]}          // ← use yMaxDisplay
+                        ticks={yTicks}                     // ← use the new ticks
+                        tick={{ fontSize: 9, fill: "#6b7280" }}
+                        tickFormatter={(v) => `${v}%`}
+                        tickLine={false}
+                        axisLine={false}
+                        width={26}
+                      />
 
-          {/* Legend (left aligned) */}
-          <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-600">
-            <LegendChip color="#ef4444" label="< 50%" />
-            <LegendChip color="#f59e0b" label="50–74%" />
-            <LegendChip color="#22c55e" label="≥ 75%" />
+                      {yMaxDisplay >= 50 && <ReferenceLine y={50} stroke="#f59e0b" strokeDasharray="3 3" />}
+                      {yMaxDisplay >= 75 && <ReferenceLine y={75} stroke="#22c55e" strokeDasharray="3 3" />}
+
+                      <ReferenceLine
+                        y={Math.min(avgMatch, yMaxDisplay)}    // clamp to display max
+                        stroke="#0ea5e9"
+                        strokeDasharray="4 4"
+                        label={{ value: `Avg ${avgMatch}%`, position: "right", fill: "#0ea5e9", fontSize: 10 }}
+                      />
+                      <Tooltip content={<RichSkillTooltip />} />
+
+                      <Bar dataKey="match" radius={[6, 6, 0, 0]} barSize={24} isAnimationActive animationDuration={350}>
+                        {fullData.map((d, i) => {
+                          const base = thresholdColor(d.match);
+                          const fill = activeIndex === null ? base : activeIndex === i ? base : "#e5e7eb";
+                          return <Cell key={i} fill={fill} cursor="pointer" />;
+                        })}
+                        <LabelList dataKey="match" content={<BarValueLabel />} />   {/* ← custom label */}
+                      </Bar>
+                    </BarChart>
+                  ) : (
+                    <RadarChart data={radarData} outerRadius="60%">
+                      <PolarGrid stroke="#eef2f7" />
+                      <PolarAngleAxis dataKey="skill" tick={{ fontSize: 8 }} />
+                      <PolarRadiusAxis
+                        angle={30}
+                        domain={[0, 100]}
+                        tickFormatter={(v) => `${v}%`}
+                        tick={{ fontSize: 8 }}
+                      />
+                      <Tooltip content={<RichSkillTooltip />} />
+                      <Radar name="Match" dataKey="match" stroke="#2563eb" fill="#93c5fd" fillOpacity={0.55} />
+                      <Radar name="Average" dataKey="avg" stroke="#0ea5e9" fillOpacity={0} strokeDasharray="4 4" />
+                    </RadarChart>
+                  )}
+                </ResponsiveContainer>
+
+              </div>
+            )}
+
+            <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-600">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: "#ef4444" }} />
+                &lt; 50%
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: "#f59e0b" }} />
+                50–74%
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: "#22c55e" }} />
+                ≥ 75%
+              </span>
+            </div>
           </div>
         </div>
       </div>
+
     </div>
   );
 }
@@ -540,4 +523,28 @@ function formatShortDate(s: string) {
   return isNaN(d.getTime())
     ? s
     : d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+}
+function BarValueLabel(props: any) {
+  const { x = 0, y = 0, width = 0, value } = props;
+  const v = Math.round(Number(value ?? 0));
+  const cx = x + width / 2;
+
+  // default: draw a little above the bar
+  let cy = y - 6;
+
+  // if bar touches the top, draw inside the bar so it doesn't clip
+  if (v >= 100 && cy < 10) cy = y + 12;
+
+  return (
+    <text
+      x={cx}
+      y={cy}
+      textAnchor="middle"
+      fontSize={10}
+      fontWeight={600}
+      fill="#111827"
+    >
+      {v}%
+    </text>
+  );
 }

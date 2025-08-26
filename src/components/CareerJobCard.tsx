@@ -57,6 +57,7 @@ export default function CareerJobCard({
   const [saved, setSaved] = useState(!!isSaved);
   const [applied, setApplied] = useState(!!isApplied);
   const [authed, setAuthed] = useState<boolean>(!!authStorage.getToken());
+const [role, setRole] = useState<"JobSeeker" | "Recruiter" | null>(getRoleFromToken());
 
   // 🔑 Prefer props for UI truth; fall back to internal state
   const appliedNow = typeof isApplied === "boolean" ? isApplied : applied;
@@ -65,11 +66,12 @@ export default function CareerJobCard({
   useEffect(() => { setSaved(!!isSaved); }, [isSaved]);
   useEffect(() => { setApplied(!!isApplied); }, [isApplied]);
 
-  useEffect(() => onAuthChanged(() => {
-    const a = !!authStorage.getToken();
-    setAuthed(a);
-    if (!a) { setSaved(false); setApplied(false); }
-  }), []);
+useEffect(() => onAuthChanged(() => {
+  const a = !!authStorage.getToken();
+  setAuthed(a);
+  setRole(getRoleFromToken());
+  if (!a) { setSaved(false); setApplied(false); }
+}), []);
 
   // super-tolerant POST for /save and /apply
   async function postWithId(url: string, id: number) {
@@ -107,9 +109,18 @@ export default function CareerJobCard({
     return d?.Message || d?.message || err?.message;
   };
   function requireAuth(): boolean {
-    if (!authed) { openAuth("login"); return false; }
-    return true;
+  if (!authed) { openAuth("login"); return false; }
+  return true;
+}
+function requireJobSeeker(action: "apply" | "save"): boolean {
+  if (!requireAuth()) return false;
+  const r = role || getRoleFromToken();
+  if (r !== "JobSeeker") {
+    alert(`You're signed in as a Recruiter. Only Job Seekers can ${action}.`);
+    return false;
   }
+  return true;
+}
   function guardForJobSeeker(action: "apply" | "save") {
   const authed = !!authStorage.getToken();
   const role = getRoleFromToken();
@@ -149,59 +160,82 @@ export default function CareerJobCard({
     return () => { cancelled = true; };
   }, [authed, jobId]);
 
-  async function handleSave() {
-    if (!requireAuth()) return;
-    if (savedNow || saving) return;
-    setSaving(true);
-    try {
-      await postWithId("/api/jobs/save", jobId);
+async function handleSave() {
+  if (!requireJobSeeker("save")) return;
+  if (savedNow || saving) return;
+
+  setSaving(true);
+  try {
+    await postWithId("/api/jobs/save", jobId);
+    setSaved(true);
+    onSave?.();                 // keep your parent callback
+    await refreshStatus();      // sync truth from server
+  } catch (err: any) {
+    const status = Number(err?.status);
+    const msg = extractMessage(err) || "";
+    if (status === 401 || status === 403) {
+      alert("Please log in as a Job Seeker to save jobs.");
+    } else if (/already\s*saved/i.test(msg)) {
       setSaved(true);
-      onSave?.();                 // notify parent to update its Saved list
+      onSave?.();
+      alert("You already saved this job.");
+    } else {
+      alert(msg || "Couldn't save this job.");
       await refreshStatus();
-    } catch (err: any) {
-      const status = Number(err?.status);
-      const msg = extractMessage(err) || "";
-      if (status === 401 || status === 403) {
-        alert("Please log in as a Job Seeker to save jobs.");
-      } else if (/already\s*saved/i.test(msg)) {
-        setSaved(true);
-        onSave?.();
-        alert("You already saved this job.");
-      } else {
-        alert(msg || "Couldn't save this job.");
-        await refreshStatus();
-      }
-    } finally { setSaving(false); }
+    }
+  } finally {
+    setSaving(false);
   }
+}
 
-  async function handleApply() {
-    if (!requireAuth()) return;
+async function handleApply() {
+  if (!requireJobSeeker("apply")) return;
+  if (appliedNow || applying) return;
 
-    if (appliedNow || applying) return;
-    setApplying(true);
-    try {
-      await postWithId("/api/jobs/apply", jobId);
+  setApplying(true);
+  try {
+    const res = await postWithId("/api/jobs/apply", jobId);
+    const d = res?.data || {};
+
+    if (d.needResume) {
+      alert(d.message || "Please upload your resume before applying.");
+      setApplied(false);
+      return;
+    }
+    if (d.autoRejected) {
+      alert(d.message || `Application auto-rejected${d.rule ? `: ${d.rule}` : ""}.`);
+      setApplied(false);
+      return;
+    }
+    if (d.alreadyApplied) {
       setApplied(true);
-      onApply?.();                // notify parent to update its Applied list
+      onApply?.();
+      alert(d.message || "Already applied.");
+      return;
+    }
+
+    if (d.applied) {
+      setApplied(true);
+      onApply?.();
+    } else {
+      alert(d.message || "Could not confirm application.");
+    }
+
+    await refreshStatus();
+  } catch (err: any) {
+    const status = Number(err?.status);
+    const msg = extractMessage(err) || "";
+    if (status === 401 || status === 403) {
+      alert("Please log in as a Job Seeker to apply.");
+    } else {
+      alert(msg || "Couldn't apply to this job. Please try again.");
       await refreshStatus();
-    } catch (err: any) {
-      const status = Number(err?.status);
-      const msg = extractMessage(err) || "";
-      if (status === 401 || status === 403) {
-        alert("Please log in as a Job Seeker to apply.");
-      } else if (/already\s*applied/i.test(msg)) {
-        setApplied(true);
-        onApply?.();
-        alert("You already applied to this job.");
-      } else if (status === 400 && !msg) {
-        const inferred = await refreshStatusAndInfer();
-        if (inferred === "applied") { onApply?.(); return; }
-        alert("Couldn't apply to this job. Please try again.");
-      } else {
-        alert(msg || "Couldn't apply to this job. Please try again.");
-      }
-    } finally { setApplying(false); }
+    }
+  } finally {
+    setApplying(false);
   }
+}
+
 
   // timeline (Applied tab only)
   const [timelineOpen, setTimelineOpen] = useState(false);

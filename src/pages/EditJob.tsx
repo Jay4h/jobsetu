@@ -29,8 +29,8 @@ type JobModel = {
 
 export default function EditJob() {
   const [autoRejectExperience, setAutoRejectExperience] = useState<boolean>(false);
-const [autoRejectLocation, setAutoRejectLocation] = useState<boolean>(false);
-const toBool = (v: any) => /^(true|1|yes|on)$/i.test(String(v ?? "").trim());
+  const [autoRejectLocation, setAutoRejectLocation] = useState<boolean>(false);
+  const toBool = (v: any) => /^(true|1|yes|on)$/i.test(String(v ?? "").trim());
 
   const { jobId } = useParams<{ jobId: string }>();
   const nav = useNavigate();
@@ -115,12 +115,13 @@ const toBool = (v: any) => /^(true|1|yes|on)$/i.test(String(v ?? "").trim());
           // numbers if present, else null
           const sMin = d.salaryMin ?? d.SalaryMin ?? null;
           const sMax = d.salaryMax ?? d.SalaryMax ?? null;
-          const exp  = d.experienceRequired ?? d.ExperienceRequired ?? null;
-const arExp = findFilter(d.filters, "AutoRejectExperience") || d.autoRejectExperience;
-  const arLoc = findFilter(d.filters, "AutoRejectLocation")   || d.autoRejectLocation;
-  
-  setAutoRejectExperience(toBool(arExp));
-  setAutoRejectLocation(toBool(arLoc));
+          const exp = d.experienceRequired ?? d.ExperienceRequired ?? null;
+          const filterBag = d?.filters ?? d?.jobMetadatas ?? d?.metadata ?? [];
+          const arExp = findFilter(filterBag, "AutoRejectExperience") || d.autoRejectExperience;
+          const arLoc = findFilter(filterBag, "AutoRejectLocation") || d.autoRejectLocation;
+
+          setAutoRejectExperience(toBool(arExp));
+          setAutoRejectLocation(toBool(arLoc));
           // normalize date string for <input type="date">
           const rawExp = d.expiryDate ?? d.ExpiryDate;
           const expiryDate =
@@ -142,15 +143,15 @@ const arExp = findFilter(d.filters, "AutoRejectExperience") || d.autoRejectExper
             expiryDate,
 
             // metadata from filters array
-            industry:    findFilter(d.filters, "Industry"),
-            department:  findFilter(d.filters, "Department"),
+            industry: findFilter(d.filters, "Industry"),
+            department: findFilter(d.filters, "Department"),
             companyType: findFilter(d.filters, "CompanyType"),
-            roleCategory:findFilter(d.filters, "RoleCategory"),
-            stipend:     findFilter(d.filters, "Stipend"),
-            duration:    findFilter(d.filters, "Duration"),
-            education:   findFilter(d.filters, "Education"),
-            postedBy:    findFilter(d.filters, "PostedBy"),
-            topCompanies:findFilter(d.filters, "TopCompanies"),
+            roleCategory: findFilter(d.filters, "RoleCategory"),
+            stipend: findFilter(d.filters, "Stipend"),
+            duration: findFilter(d.filters, "Duration"),
+            education: findFilter(d.filters, "Education"),
+            postedBy: findFilter(d.filters, "PostedBy"),
+            topCompanies: findFilter(d.filters, "TopCompanies"),
 
             tags,        // may be empty if API doesn’t include them
             skills,      // may be empty; we’ll try the recruiter endpoint next
@@ -190,7 +191,7 @@ const arExp = findFilter(d.filters, "AutoRejectExperience") || d.autoRejectExper
     fd.append("isRemote", String(!!m.isRemote));
     fd.append("isUrgent", String(!!m.isUrgent));
     fd.append("autoRejectExperience", autoRejectExperience ? "true" : "false");
-fd.append("autoRejectLocation",   autoRejectLocation ? "true" : "false");
+    fd.append("autoRejectLocation", autoRejectLocation ? "true" : "false");
 
     // metadata (keys match backend)
     if (m.industry) fd.append("industry", m.industry);
@@ -225,100 +226,100 @@ fd.append("autoRejectLocation",   autoRejectLocation ? "true" : "false");
       <form onSubmit={submit} className="space-y-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1">Title*
-            <input className="border rounded p-2" required value={m.title} onChange={e=>setM({...m, title:e.target.value})}/>
+            <input className="border rounded p-2" required value={m.title} onChange={e => setM({ ...m, title: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1">Location*
-            <input className="border rounded p-2" required value={m.location} onChange={e=>setM({...m, location:e.target.value})}/>
+            <input className="border rounded p-2" required value={m.location} onChange={e => setM({ ...m, location: e.target.value })} />
           </label>
 
           <label className="flex flex-col gap-1">Salary Min
-            <input type="number" className="border rounded p-2" value={m.salaryMin ?? ""} onChange={e=>setM({...m, salaryMin: e.target.value? Number(e.target.value): null})}/>
+            <input type="number" className="border rounded p-2" value={m.salaryMin ?? ""} onChange={e => setM({ ...m, salaryMin: e.target.value ? Number(e.target.value) : null })} />
           </label>
           <label className="flex flex-col gap-1">Salary Max
-            <input type="number" className="border rounded p-2" value={m.salaryMax ?? ""} onChange={e=>setM({...m, salaryMax: e.target.value? Number(e.target.value): null})}/>
+            <input type="number" className="border rounded p-2" value={m.salaryMax ?? ""} onChange={e => setM({ ...m, salaryMax: e.target.value ? Number(e.target.value) : null })} />
           </label>
 
           <label className="flex flex-col gap-1">Experience (years)
-            <input type="number" className="border rounded p-2" value={m.experience ?? ""} onChange={e=>setM({...m, experience: e.target.value? Number(e.target.value): null})}/>
+            <input type="number" className="border rounded p-2" value={m.experience ?? ""} onChange={e => setM({ ...m, experience: e.target.value ? Number(e.target.value) : null })} />
           </label>
           <label className="flex flex-col gap-1">Expiry Date
-            <input type="date" className="border rounded p-2" value={m.expiryDate || ""} onChange={e=>setM({...m, expiryDate:e.target.value})}/>
+            <input type="date" className="border rounded p-2" value={m.expiryDate || ""} onChange={e => setM({ ...m, expiryDate: e.target.value })} />
           </label>
         </div>
 
         <div className="flex items-center gap-6">
           <label className="flex items-center gap-2">
-            <input type="checkbox" checked={!!m.isRemote} onChange={(e)=>setM({...m, isRemote:e.target.checked})}/>
+            <input type="checkbox" checked={!!m.isRemote} onChange={(e) => setM({ ...m, isRemote: e.target.checked })} />
             <span>Remote</span>
           </label>
           <label className="flex items-center gap-2">
-            <input type="checkbox" checked={!!m.isUrgent} onChange={(e)=>setM({...m, isUrgent:e.target.checked})}/>
+            <input type="checkbox" checked={!!m.isUrgent} onChange={(e) => setM({ ...m, isUrgent: e.target.checked })} />
             <span>Urgent</span>
           </label>
         </div>
 
         <label className="flex flex-col gap-1">Description*
-          <textarea rows={6} className="border rounded p-2" required value={m.description} onChange={e=>setM({...m, description:e.target.value})}/>
+          <textarea rows={6} className="border rounded p-2" required value={m.description} onChange={e => setM({ ...m, description: e.target.value })} />
         </label>
 
         {/* metadata – optional */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1">Industry
-            <input className="border rounded p-2" value={m.industry || ""} onChange={(e)=>setM({...m, industry:e.target.value})}/>
+            <input className="border rounded p-2" value={m.industry || ""} onChange={(e) => setM({ ...m, industry: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1">Department
-            <input className="border rounded p-2" value={m.department || ""} onChange={(e)=>setM({...m, department:e.target.value})}/>
+            <input className="border rounded p-2" value={m.department || ""} onChange={(e) => setM({ ...m, department: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1">Company Type
-            <input className="border rounded p-2" value={m.companyType || ""} onChange={(e)=>setM({...m, companyType:e.target.value})}/>
+            <input className="border rounded p-2" value={m.companyType || ""} onChange={(e) => setM({ ...m, companyType: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1">Role Category
-            <input className="border rounded p-2" value={m.roleCategory || ""} onChange={(e)=>setM({...m, roleCategory:e.target.value})}/>
+            <input className="border rounded p-2" value={m.roleCategory || ""} onChange={(e) => setM({ ...m, roleCategory: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1">Stipend
-            <input className="border rounded p-2" value={m.stipend || ""} onChange={(e)=>setM({...m, stipend:e.target.value})}/>
+            <input className="border rounded p-2" value={m.stipend || ""} onChange={(e) => setM({ ...m, stipend: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1">Duration
-            <input className="border rounded p-2" value={m.duration || ""} onChange={(e)=>setM({...m, duration:e.target.value})}/>
+            <input className="border rounded p-2" value={m.duration || ""} onChange={(e) => setM({ ...m, duration: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1">Education
-            <input className="border rounded p-2" value={m.education || ""} onChange={(e)=>setM({...m, education:e.target.value})}/>
+            <input className="border rounded p-2" value={m.education || ""} onChange={(e) => setM({ ...m, education: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1">Posted By
-            <input className="border rounded p-2" value={m.postedBy || ""} onChange={(e)=>setM({...m, postedBy:e.target.value})}/>
+            <input className="border rounded p-2" value={m.postedBy || ""} onChange={(e) => setM({ ...m, postedBy: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1 md:col-span-2">Top Companies
-            <input className="border rounded p-2" value={m.topCompanies || ""} onChange={(e)=>setM({...m, topCompanies:e.target.value})}/>
+            <input className="border rounded p-2" value={m.topCompanies || ""} onChange={(e) => setM({ ...m, topCompanies: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1 md:col-span-2">Tags (comma-separated)
-            <input className="border rounded p-2" value={m.tags || ""} onChange={(e)=>setM({...m, tags:e.target.value})}/>
+            <input className="border rounded p-2" value={m.tags || ""} onChange={(e) => setM({ ...m, tags: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1 md:col-span-2">Skills (comma-separated)
-            <input className="border rounded p-2" value={m.skills || ""} onChange={(e)=>setM({...m, skills:e.target.value})}/>
+            <input className="border rounded p-2" value={m.skills || ""} onChange={(e) => setM({ ...m, skills: e.target.value })} />
           </label>
         </div>
 
-    <div className="space-y-2">
-  <h3 className="text-lg font-medium">Auto‑Reject Rules</h3>
-  <div className="flex flex-wrap gap-6">
-    <label className="flex items-center gap-2">
-      <input
-        type="checkbox"
-        checked={autoRejectExperience}
-        onChange={(e)=>setAutoRejectExperience(e.target.checked)}
-      />
-      <span>Reject if candidate experience is less than required</span>
-    </label>
-    <label className="flex items-center gap-2">
-      <input
-        type="checkbox"
-        checked={autoRejectLocation}
-        onChange={(e)=>setAutoRejectLocation(e.target.checked)}
-      />
-      <span>Reject if candidate location ≠ job location</span>
-    </label>
-  </div>
-</div>
+        <div className="space-y-2">
+          <h3 className="text-lg font-medium">Auto‑Reject Rules</h3>
+          <div className="flex flex-wrap gap-6">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={autoRejectExperience}
+                onChange={(e) => setAutoRejectExperience(e.target.checked)}
+              />
+              <span>Reject if candidate experience is less than required</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={autoRejectLocation}
+                onChange={(e) => setAutoRejectLocation(e.target.checked)}
+              />
+              <span>Reject if candidate location ≠ job location</span>
+            </label>
+          </div>
+        </div>
 
         <button className="bg-blue-600 text-white px-4 py-2 rounded">Save changes</button>
       </form>

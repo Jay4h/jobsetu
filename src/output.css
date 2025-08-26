@@ -494,6 +494,9 @@
   .h-28 {
     height: calc(var(--spacing) * 28);
   }
+  .h-\[140px\] {
+    height: 140px;
+  }
   .h-full {
     height: 100%;
   }
@@ -1558,6 +1561,11 @@
   .sm\:inline {
     @media (width >= 40rem) {
       display: inline;
+    }
+  }
+  .sm\:h-\[160px\] {
+    @media (width >= 40rem) {
+      height: 160px;
     }
   }
   .sm\:w-\[480px\] {
