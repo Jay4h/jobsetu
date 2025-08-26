@@ -6,8 +6,10 @@ import ResumeChat from "../components/ResumeChat";
 
 /* ---------------- Types ---------------- */
 type Role = "JobSeeker" | "Recruiter";
+type DesignTip = string | { section?: string; advice?: string; priority?: string };
+
 type DesignTipsState = {
-  tips: string[];
+  tips: DesignTip[];
   lengthStructure?: string | null;
   atsOptimization?: string | null;
 };
@@ -27,6 +29,34 @@ type SeekerProfile = {
   resumeScore?: number | null;
   fitScore?: number | null;
 };
+/* ---------- GDPR types ---------- */
+type JsConsentItem = {
+  consentId: number;
+  userId: number;
+  isAccepted: boolean;
+  consentDate: string;
+  consentType?: string;
+  version?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  isCurrent?: boolean;
+};
+
+type JsConsentResp = {
+  total: number;
+  current?: JsConsentItem | null;
+  items: JsConsentItem[];
+};
+/* -------------------------------- */
+
+/* date formatter that supports ISO and /Date(…)/ */
+function fmtConsentDate(dt?: string) {
+  if (!dt) return "—";
+  const s = String(dt);
+  const m = s.match(/\/Date\((\d+)\)\//);
+  const d = m ? new Date(Number(m[1])) : new Date(s);
+  return isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}
 
 type RecruiterProfile = {
   name?: string;
@@ -131,7 +161,9 @@ export default function Profile() {
     matchedKeywords?: string[];
     wordCount?: number;
   }>({});
-
+  const [jsConsents, setJsConsents] = useState<JsConsentResp | null>(null);
+  const [jsConsentsErr, setJsConsentsErr] = useState<string | null>(null);
+  const [jsConsentsLoading, setJsConsentsLoading] = useState<boolean>(false);
   // ---------- Skill Gap Analysis (merged) ----------
   const [gapJobId, setGapJobId] = useState<number | "">("");
   const [gapLoading, setGapLoading] = useState(false);
@@ -144,6 +176,50 @@ export default function Profile() {
     gaps?: string[];
     suggestions?: string[];
   }>({});
+  // Fetch GDPR consents for JobSeeker
+  useEffect(() => {
+    if (role !== "JobSeeker") return;
+
+    setJsConsentsLoading(true);
+    api
+      .get("/api/user/consents", { suppressUnauthorized: true })
+      .then((r) => {
+        const raw = r.data || {};
+        // map PascalCase → camelCase
+        const items: JsConsentItem[] = (raw.items || []).map((x: any) => ({
+          consentId: x.ConsentId,
+          userId: x.UserId,
+          isAccepted: !!x.IsAccepted,
+          consentDate: x.ConsentDate,
+          consentType: x.ConsentType,
+          version: x.Version,
+          ipAddress: x.IpAddress,
+          userAgent: x.UserAgent,
+          isCurrent: !!x.IsCurrent,
+        }));
+        const c = raw.current
+          ? ({
+            consentId: raw.current.ConsentId,
+            userId: raw.current.UserId,
+            isAccepted: !!raw.current.IsAccepted,
+            consentDate: raw.current.ConsentDate,
+            consentType: raw.current.ConsentType,
+            version: raw.current.Version,
+            ipAddress: raw.current.IpAddress,
+            userAgent: raw.current.UserAgent,
+            isCurrent: !!raw.current.IsCurrent,
+          } as JsConsentItem)
+          : null;
+
+        setJsConsents({
+          total: typeof raw.total === "number" ? raw.total : items.length,
+          current: c,
+          items,
+        });
+      })
+      .catch((e) => setJsConsentsErr(e?.message || "Failed to load consents"))
+      .finally(() => setJsConsentsLoading(false));
+  }, [role]);
 
   // -------- Project Rewriter + Video Resume Script --------
   const [projectText, setProjectText] = useState("");
@@ -301,7 +377,7 @@ export default function Profile() {
     setSeeker(p);
   }
   function extractDesignTips(data: any): DesignTipsState {
-    const tips =
+    const tips: DesignTip[] =
       (Array.isArray(data?.designTips) && data.designTips) ||
       (Array.isArray(data?.tips) && data.tips) ||
       (Array.isArray(data?.Tips) && data.Tips) ||
@@ -312,71 +388,72 @@ export default function Profile() {
       atsOptimization: data?.atsOptimization ?? data?.AtsOptimization ?? null,
     };
   }
-// Also normalize the trailing "viewed on DD-MM-YYYY HH:mm:ss" to IST (browser-safe).
-async function loadSeekerSummaryWithFallback() {
-  const [summaryRes, viewsRes] = await Promise.allSettled([
-    api.get<Summary>("/api/user/profile/summary", { meta: { ignoreGlobal401: true } as any }),
-    api.get("/api/user/resume/views", { meta: { ignoreGlobal401: true } as any }),
-  ]);
 
-  // start with defaults
-  let views = { viewCount: 0, lastViewedBy: null as string | null };
-  let saved = { total: 0, recent: [] as { createdAt: string; title: string; jobId: number }[] };
-  let applied = { total: 0, recent: [] as { appliedOn: string; title: string; jobId: number; currentStatus?: string }[] };
-  let ai: { lastResumeFitScore?: number | null } = { lastResumeFitScore: undefined };
+  // Also normalize the trailing "viewed on DD-MM-YYYY HH:mm:ss" to IST (browser-safe).
+  async function loadSeekerSummaryWithFallback() {
+    const [summaryRes, viewsRes] = await Promise.allSettled([
+      api.get<Summary>("/api/user/profile/summary", { meta: { ignoreGlobal401: true } as any }),
+      api.get("/api/user/resume/views", { meta: { ignoreGlobal401: true } as any }),
+    ]);
 
-  // Convert "... viewed on DD/MM/YYYY HH:mm:ss" (or DD-MM-YYYY) which is in IST
-// to the viewer's local timezone and format as "DD/MM/YYYY HH:mm:ss".
-function normalizeViewedOn(str?: string | null) {
-  if (!str) return null;
+    // start with defaults
+    let views = { viewCount: 0, lastViewedBy: null as string | null };
+    let saved = { total: 0, recent: [] as { createdAt: string; title: string; jobId: number }[] };
+    let applied = { total: 0, recent: [] as { appliedOn: string; title: string; jobId: number; currentStatus?: string }[] };
+    let ai: { lastResumeFitScore?: number | null } = { lastResumeFitScore: undefined };
 
-  // Accept both slashes and hyphens, and optional comma between date/time.
-  const m = str.match(/^(.*viewed on )(\d{2})[\/-](\d{2})[\/-](\d{4})[ ,]*(\d{2}):(\d{2}):(\d{2})$/);
-  if (!m) return str; // leave unknown formats alone
+    // Convert "... viewed on DD/MM/YYYY HH:mm:ss" (or DD-MM-YYYY) which is in IST
+    // to the viewer's local timezone and format as "DD/MM/YYYY HH:mm:ss".
+    function normalizeViewedOn(str?: string | null) {
+      if (!str) return null;
 
-  const [, prefix, dd, mm, yyyy, HH, MM, SS] = m;
+      // Accept both slashes and hyphens, and optional comma between date/time.
+      const m = str.match(/^(.*viewed on )(\d{2})[\/-](\d{2})[\/-](\d{4})[ ,]*(\d{2}):(\d{2}):(\d{2})$/);
+      if (!m) return str; // leave unknown formats alone
 
-  // The server time is IST (UTC+05:30). Convert that IST timestamp -> UTC.
-  const IST_OFFSET_MIN = 330; // 5h 30m
-  const utcMs = Date.UTC(+yyyy, +mm - 1, +dd, +HH, +MM, +SS) - IST_OFFSET_MIN * 60 * 1000;
+      const [, prefix, dd, mm, yyyy, HH, MM, SS] = m;
 
-  // Format in the user's local timezone (browser default).
-  const formatted = new Intl.DateTimeFormat("en-IN", {
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  })
-    .format(new Date(utcMs))
-    .replace(",", ""); // "DD/MM/YYYY, HH:mm:ss" -> "DD/MM/YYYY HH:mm:ss"
+      // The server time is IST (UTC+05:30). Convert that IST timestamp -> UTC.
+      const IST_OFFSET_MIN = 330; // 5h 30m
+      const utcMs = Date.UTC(+yyyy, +mm - 1, +dd, +HH, +MM, +SS) - IST_OFFSET_MIN * 60 * 1000;
 
-  return `${prefix}${formatted}`;
-}
+      // Format in the user's local timezone (browser default).
+      const formatted = new Intl.DateTimeFormat("en-IN", {
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      })
+        .format(new Date(utcMs))
+        .replace(",", ""); // "DD/MM/YYYY, HH:mm:ss" -> "DD/MM/YYYY HH:mm:ss"
 
-  // take what summary has first
-  if (summaryRes.status === "fulfilled") {
-    const data = summaryRes.value.data;
-    views = data?.views ?? views;
-    saved = data?.saved ?? saved;
-    applied = data?.applied ?? applied;
-    ai = data?.ai ?? ai;
+      return `${prefix}${formatted}`;
+    }
+
+    // take what summary has first
+    if (summaryRes.status === "fulfilled") {
+      const data = summaryRes.value.data;
+      views = data?.views ?? views;
+      saved = data?.saved ?? saved;
+      applied = data?.applied ?? applied;
+      ai = data?.ai ?? ai;
+    }
+
+    // prefer /resume/views for freshest counts + localizable timestamp
+    if (viewsRes.status === "fulfilled") {
+      const d: any = viewsRes.value.data;
+      views = {
+        viewCount: Number(d?.viewCount ?? views.viewCount ?? 0),
+        lastViewedBy: normalizeViewedOn(d?.lastViewedBy) ?? views.lastViewedBy ?? null,
+      };
+    }
+
+    setSummary({ views, saved, applied, ai });
   }
-
-  // prefer /resume/views for freshest counts + localizable timestamp
-  if (viewsRes.status === "fulfilled") {
-    const d: any = viewsRes.value.data;
-    views = {
-      viewCount: Number(d?.viewCount ?? views.viewCount ?? 0),
-      lastViewedBy: normalizeViewedOn(d?.lastViewedBy) ?? views.lastViewedBy ?? null,
-    };
-  }
-
-  setSummary({ views, saved, applied, ai });
-}
 
 
 
@@ -515,7 +592,6 @@ function normalizeViewedOn(str?: string | null) {
     }
   }
 
-  // Generate/Re-generate resume score
   async function generateResumeScore() {
     if (!seeker?.resumeFile) {
       alert("Upload a resume first, then score it.");
@@ -524,9 +600,8 @@ function normalizeViewedOn(str?: string | null) {
     setScoring(true);
     try {
       const { data } = await api.post("/api/resume/score");
-      const score = Number(data?.score ?? data?.Score ?? 0);
+      const newScore = Number(data?.score ?? 0);
 
-      // Optional breakdowns
       const breakdown = {
         matchedSkills: data?.matchedSkills ?? [],
         matchedKeywords: data?.matchedKeywords ?? data?.keywords ?? [],
@@ -534,7 +609,7 @@ function normalizeViewedOn(str?: string | null) {
       };
       setScoreBreakdown(breakdown);
 
-      setSeeker((prev) => (prev ? { ...prev, resumeScore: score } : prev));
+      setSeeker(prev => (prev ? { ...prev, resumeScore: newScore } : prev));
     } catch (err: any) {
       alert(err?.response?.data?.message || err?.message || "Failed to score resume");
     } finally {
@@ -726,90 +801,90 @@ function normalizeViewedOn(str?: string | null) {
 
   // Mock Interview questions
   async function generateInterviewQs() {
-  if (!seeker?.resumeFile) {
-    alert("Please upload a resume first.");
-    return;
-  }
-  setInterviewLoading(true);
-  try {
-    const prompt =
-      `Generate ${questionCount} realistic interview questions based on my resume. ` +
-      `Mix behavioral and technical where relevant. Number each question only.`;
-
-    const { data } = await api.post("/api/resume/chat", {
-      Question: prompt,
-      Mode: AI_MODES.MOCK_INTERVIEW,
-    });
-
-    let list: string[] = [];
-    if (Array.isArray(data?.questions)) list = data.questions;
-    else {
-      const raw = (data?.shortAnswer || data?.answer || "") as string;
-      list = raw
-        .replace(/<\/?br\/?>/gi, "\n")
-        .split(/\n+/)
-        .map((s) => s.replace(/^\d+[\).\s-]?\s*/, "").trim())
-        .filter(Boolean);
+    if (!seeker?.resumeFile) {
+      alert("Please upload a resume first.");
+      return;
     }
-    const trimmed = list.slice(0, questionCount);
-    setInterviewQs(trimmed.length ? trimmed : ["No questions returned"]);
-  } catch (err: any) {
-    alert(err?.response?.data?.message || err?.message || "Failed to generate interview questions");
-  } finally {
-    setInterviewLoading(false);
+    setInterviewLoading(true);
+    try {
+      const prompt =
+        `Generate ${questionCount} realistic interview questions based on my resume. ` +
+        `Mix behavioral and technical where relevant. Number each question only.`;
+
+      const { data } = await api.post("/api/resume/chat", {
+        Question: prompt,
+        Mode: AI_MODES.MOCK_INTERVIEW,
+      });
+
+      let list: string[] = [];
+      if (Array.isArray(data?.questions)) list = data.questions;
+      else {
+        const raw = (data?.shortAnswer || data?.answer || "") as string;
+        list = raw
+          .replace(/<\/?br\/?>/gi, "\n")
+          .split(/\n+/)
+          .map((s) => s.replace(/^\d+[\).\s-]?\s*/, "").trim())
+          .filter(Boolean);
+      }
+      const trimmed = list.slice(0, questionCount);
+      setInterviewQs(trimmed.length ? trimmed : ["No questions returned"]);
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || "Failed to generate interview questions");
+    } finally {
+      setInterviewLoading(false);
+    }
   }
-}
 
   // Project Rewriter
-async function generateProjectRewrite() {
-  if (!projectText.trim()) {
-    alert("Paste a project/experience description first.");
-    return;
+  async function generateProjectRewrite() {
+    if (!projectText.trim()) {
+      alert("Paste a project/experience description first.");
+      return;
+    }
+    setRewriteLoading(true);
+    try {
+      const prompt =
+        "Rewrite this project for a resume using strong action verbs, impact, and metrics. " +
+        "Keep to 4–6 bullet points, 18 words max each.\n\n" + projectText.trim();
+
+      const { data } = await api.post("/api/resume/chat", {
+        Question: prompt,
+        Mode: AI_MODES.PROJECT_REWRITER, // Adjust mode for your backend
+      });
+
+      const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
+      setRewriteOutput(String(text));
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || "Failed to rewrite project");
+    } finally {
+      setRewriteLoading(false);
+    }
   }
-  setRewriteLoading(true);
-  try {
-    const prompt =
-      "Rewrite this project for a resume using strong action verbs, impact, and metrics. " +
-      "Keep to 4–6 bullet points, 18 words max each.\n\n" + projectText.trim();
 
-    const { data } = await api.post("/api/resume/chat", {
-      Question: prompt,
-      Mode: AI_MODES.PROJECT_REWRITER, // Adjust mode for your backend
-    });
+  async function generateVideoScript() {
+    if (!projectText.trim()) {
+      alert("Paste your project/summary first.");
+      return;
+    }
+    setVideoLoading(true);
+    try {
+      const prompt =
+        "Create a concise 60–90 second video resume script with intro, 2–3 achievements, and a crisp closing CTA. " +
+        "Keep sentences short and conversational.\n\n" + projectText.trim();
 
-    const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
-    setRewriteOutput(String(text));
-  } catch (err: any) {
-    alert(err?.response?.data?.message || err?.message || "Failed to rewrite project");
-  } finally {
-    setRewriteLoading(false);
+      const { data } = await api.post("/api/resume/chat", {
+        Question: prompt,
+        Mode: AI_MODES.VIDEO_SCRIPT, // Adjust mode for your backend
+      });
+
+      const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
+      setVideoOutput(String(text));
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || "Failed to generate video script");
+    } finally {
+      setVideoLoading(false);
+    }
   }
-}
-
-async function generateVideoScript() {
-  if (!projectText.trim()) {
-    alert("Paste your project/summary first.");
-    return;
-  }
-  setVideoLoading(true);
-  try {
-    const prompt =
-      "Create a concise 60–90 second video resume script with intro, 2–3 achievements, and a crisp closing CTA. " +
-      "Keep sentences short and conversational.\n\n" + projectText.trim();
-
-    const { data } = await api.post("/api/resume/chat", {
-      Question: prompt,
-      Mode: AI_MODES.VIDEO_SCRIPT, // Adjust mode for your backend
-    });
-
-    const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
-    setVideoOutput(String(text));
-  } catch (err: any) {
-    alert(err?.response?.data?.message || err?.message || "Failed to generate video script");
-  } finally {
-    setVideoLoading(false);
-  }
-}
 
 
   // Multilingual Q&A
@@ -958,19 +1033,107 @@ async function generateVideoScript() {
                 {pdfLoading ? "Generating…" : "Generate AI Resume PDF"}
               </button>
             </div>
+            {/* GDPR Consent Logs */}
+            <Card title="GDPR Consent Logs">
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-gray-600">User consent history</div>
+                {jsConsents?.total != null && (
+                  <span className="text-xs text-gray-500">Total: {jsConsents.total}</span>
+                )}
+              </div>
+
+              {jsConsentsLoading && <div className="text-sm">Loading consent logs…</div>}
+              {jsConsentsErr && <div className="text-sm text-red-600">{jsConsentsErr}</div>}
+
+              {!jsConsentsLoading && !jsConsentsErr && jsConsents?.items?.length === 0 && (
+                <div className="text-sm text-gray-600">No consent records found.</div>
+              )}
+
+              {!jsConsentsLoading && !jsConsentsErr && !!jsConsents?.items?.length && (
+                <>
+                  {jsConsents.current && (
+                    <div className="rounded-md bg-gray-50 ring-1 ring-gray-200 p-3 mb-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium">Current Consent</span>
+                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-green-100 text-green-700 ring-1 ring-green-200">
+                          Active
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-700 space-y-1">
+                        <div>
+                          <span className="font-medium">Type:</span>{" "}
+                          {jsConsents.current.consentType || "GDPR"} ({jsConsents.current.version || "v1.0"})
+                        </div>
+                        <div>
+                          <span className="font-medium">Accepted:</span>{" "}
+                          {jsConsents.current.isAccepted ? "Yes" : "No"}
+                        </div>
+                        <div>
+                          <span className="font-medium">Date:</span>{" "}
+                          {fmtConsentDate(jsConsents.current.consentDate)}
+                        </div>
+                        {jsConsents.current.ipAddress && (
+                          <div><span className="font-medium">IP:</span> {jsConsents.current.ipAddress}</div>
+                        )}
+                        {jsConsents.current.userAgent && (
+                          <div className="truncate"><span className="font-medium">UA:</span> {jsConsents.current.userAgent}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="overflow-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-gray-600">
+                          <th className="py-1 pr-3">#</th>
+                          <th className="py-1 pr-3">Date</th>
+                          <th className="py-1 pr-3">Type</th>
+                          <th className="py-1 pr-3">Version</th>
+                          <th className="py-1 pr-3">Accepted</th>
+                          <th className="py-1 pr-3">IP</th>
+                          <th className="py-1 pr-3">User Agent</th>
+                          <th className="py-1">Current</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {jsConsents.items.map((c, i) => (
+                          <tr key={`${c.consentId ?? "x"}-${i}`} className="border-t">
+                            <td className="py-1 pr-3">{c.consentId}</td>
+                            <td className="py-1 pr-3">{fmtConsentDate(c.consentDate)}</td>
+                            <td className="py-1 pr-3">{c.consentType || "GDPR"}</td>
+                            <td className="py-1 pr-3">{c.version || "v1.0"}</td>
+                            <td className="py-1 pr-3">{c.isAccepted ? "Yes" : "No"}</td>
+                            <td className="py-1 pr-3">{c.ipAddress || "—"}</td>
+                            <td className="py-1 pr-3">
+                              <span className="block max-w-[280px] truncate" title={c.userAgent || ""}>
+                                {c.userAgent || "—"}
+                              </span>
+                            </td>
+                            <td className="py-1">{c.isCurrent ? "✅" : ""}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </Card>
+
           </div>
 
           <div className="space-y-6">
             {/* Resume Score card */}
+            {/* Resume Score card (rendering) */}
             <Card title="Resume score">
-              {!seeker.resumeFile && (
+              {!seeker?.resumeFile && (
                 <div className="text-sm text-gray-600">
                   No resume found. Upload a resume in{" "}
                   <button className="link" onClick={() => setTab("edit")}>Edit</button> to generate a score.
                 </div>
               )}
 
-              {seeker.resumeFile && (seeker.resumeScore == null || Number.isNaN(seeker.resumeScore)) && (
+              {seeker?.resumeFile && (seeker.resumeScore == null || Number.isNaN(seeker.resumeScore)) && (
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-sm text-gray-600">You haven’t generated a resume score yet.</div>
                   <button
@@ -984,7 +1147,7 @@ async function generateVideoScript() {
                 </div>
               )}
 
-              {seeker.resumeFile && seeker.resumeScore != null && !Number.isNaN(seeker.resumeScore) && (
+              {seeker?.resumeFile && seeker.resumeScore != null && !Number.isNaN(seeker.resumeScore) && (
                 <div className="space-y-3">
                   <div className="flex items-end justify-between">
                     <div>
@@ -1011,31 +1174,10 @@ async function generateVideoScript() {
                   <div className="text-xs text-gray-600">
                     Higher scores usually mean better keyword/skill alignment and ATS-friendly formatting.
                   </div>
-
-                  {/* Breakdown (optional rows) */}
-                  <div className="mt-2 text-sm text-gray-700 space-y-1">
-                    {Array.isArray(scoreBreakdown.matchedSkills) && scoreBreakdown.matchedSkills.length > 0 && (
-                      <div>
-                        <span className="font-medium">Matched skills:</span>{" "}
-                        <span>{scoreBreakdown.matchedSkills.join(", ")}</span>
-                      </div>
-                    )}
-                    {Array.isArray(scoreBreakdown.matchedKeywords) && scoreBreakdown.matchedKeywords.length > 0 && (
-                      <div>
-                        <span className="font-medium">Matched keywords:</span>{" "}
-                        <span>{scoreBreakdown.matchedKeywords.join(", ")}</span>
-                      </div>
-                    )}
-                    {typeof scoreBreakdown.wordCount === "number" && (
-                      <div>
-                        <span className="font-medium">Word count:</span>{" "}
-                        <span>{scoreBreakdown.wordCount}</span>
-                      </div>
-                    )}
-                  </div>
                 </div>
               )}
             </Card>
+
 
             {/* Public link (copy only) */}
             {seeker.publicProfileSlug && (
@@ -1417,77 +1559,84 @@ async function generateVideoScript() {
                   <SectionLabel>Actionable tips</SectionLabel>
                   {tips.tips.length ? (
                     <ul className="list-disc list-inside text-sm space-y-1">
-                      {tips.tips.map((t, i) => <li key={i}>{t}</li>)}
+                      {tips.tips.map((t, i) => (
+                        <li key={i}>
+                          {typeof t === "string"
+                            ? t
+                            : `${t.section ? `[${t.section}] ` : ""}${t.advice || ""}`}
+                        </li>
+                      ))}
                     </ul>
                   ) : (
                     <div className="text-sm text-gray-600">No tips available.</div>
                   )}
                 </div>
+
               </div>
             )}
           </Card>
 
           {/* NEW: Mock Interview Q/A Generator */}
           <Card title="Mock interview (generate questions)">
-  <Two>
-    <Field label="Number of questions">
-      <input
-        type="number"
-        min={5}
-        max={20}
-        className="input"
-        value={questionCount}
-        onChange={(e) => setQuestionCount(Math.max(5, Math.min(20, Number(e.target.value || 10))))}
-      />
-    </Field>
-    <Field label="Action">
-      <button className="btn btn-primary w-full" onClick={generateInterviewQs} disabled={interviewLoading}>
-        {interviewLoading ? "Generating…" : "Generate questions"}
-      </button>
-    </Field>
-  </Two>
+            <Two>
+              <Field label="Number of questions">
+                <input
+                  type="number"
+                  min={5}
+                  max={20}
+                  className="input"
+                  value={questionCount}
+                  onChange={(e) => setQuestionCount(Math.max(5, Math.min(20, Number(e.target.value || 10))))}
+                />
+              </Field>
+              <Field label="Action">
+                <button className="btn btn-primary w-full" onClick={generateInterviewQs} disabled={interviewLoading}>
+                  {interviewLoading ? "Generating…" : "Generate questions"}
+                </button>
+              </Field>
+            </Two>
 
-  {interviewQs && (
-    <ol className="list-decimal list-inside text-sm mt-3 space-y-1">
-      {interviewQs.map((q, i) => <li key={i}>{q}</li>)}
-    </ol>
-  )}
-</Card>
+            {interviewQs && (
+              <ol className="list-decimal list-inside text-sm mt-3 space-y-1">
+                {interviewQs.map((q, i) => <li key={i}>{q}</li>)}
+              </ol>
+            )}
+          </Card>
 
           {/* NEW: Project Rewriter + Video Resume Script */}
           <Card title="Project rewrite & video script">
-  <Field label="Paste your project / experience">
-    <textarea
-      className="input h-28"
-      placeholder="Paste a project or short summary to transform…"
-      value={projectText}
-      onChange={(e) => setProjectText(e.target.value)}
-    />
-  </Field>
+            <Field label="Paste your project / experience">
+              <textarea
+                className="input h-28"
+                placeholder="Paste a project or short summary to transform…"
+                value={projectText}
+                onChange={(e) => setProjectText(e.target.value)}
+              />
+            </Field>
 
-  <div className="flex flex-wrap gap-2">
-    <button className="btn btn-primary" onClick={generateProjectRewrite} disabled={rewriteLoading}>
-      {rewriteLoading ? "Rewriting…" : "Rewrite for resume"}
-    </button>
-    <button className="btn btn-ghost" onClick={generateVideoScript} disabled={videoLoading}>
-      {videoLoading ? "Creating…" : "Generate video script"}
-    </button>
-  </div>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn btn-primary" onClick={generateProjectRewrite} disabled={rewriteLoading}>
+                {rewriteLoading ? "Rewriting…" : "Rewrite for resume"}
+              </button>
+              <button className="btn btn-ghost" onClick={generateVideoScript} disabled={videoLoading}>
+                {videoLoading ? "Creating…" : "Generate video script"}
+              </button>
+            </div>
 
-  {rewriteOutput && (
-    <div className="mt-3">
-      <SectionLabel>Rewritten bullets</SectionLabel>
-      <pre className="whitespace-pre-wrap text-sm bg-gray-50 rounded p-2 ring-1 ring-gray-200">{rewriteOutput}</pre>
-    </div>
-  )}
+            {rewriteOutput && (
+              <div className="mt-3">
+                <SectionLabel>Rewritten bullets</SectionLabel>
+                <pre className="whitespace-pre-wrap text-sm bg-gray-50 rounded p-2 ring-1 ring-gray-200">{rewriteOutput}</pre>
+              </div>
+            )}
 
-  {videoOutput && (
-    <div className="mt-3">
-      <SectionLabel>Video resume script</SectionLabel>
-      <pre className="whitespace-pre-wrap text-sm bg-gray-50 rounded p-2 ring-1 ring-gray-200">{videoOutput}</pre>
-    </div>
-  )}
-</Card>
+            {videoOutput && (
+              <div className="mt-3">
+                <SectionLabel>Video resume script</SectionLabel>
+                <pre className="whitespace-pre-wrap text-sm bg-gray-50 rounded p-2 ring-1 ring-gray-200">{videoOutput}</pre>
+              </div>
+            )}
+          </Card>
 
 
           {/* NEW: Multilingual Resume Help */}
@@ -1535,7 +1684,7 @@ async function generateVideoScript() {
       {/* ASSISTANT - full-width professional chat */}
       {tab === "assistant" && role === "JobSeeker" && (
         <div className="mt-6">
-          <div className="rounded-2xl border border-gray-200 p-0 overflow-hidden">
+          <div className="rounded-2xl border border-gray-200 p-0 overflow-visible">
             <ResumeChat />
           </div>
         </div>

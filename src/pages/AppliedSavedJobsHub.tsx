@@ -29,7 +29,9 @@ function buildLogoUrl(raw?: string) {
   if (/^uploads\//i.test(v)) return `${BASE}/${v}`;
   return `${BASE}/Uploads/Logos/${v}`;
 }
-
+function getAxiosMessage(e: any, fallback = "Something went wrong.") {
+  return e?.response?.data?.message || e?.message || fallback;
+}
 // Formats dd-MM-yyyy. If input is "YYYY-MM-DD", avoid timezone shift.
 function formatDateDDMMYYYY(v?: string | Date | null) {
   if (!v) return "—";
@@ -225,8 +227,8 @@ function SkillTestModule({
       setSubTab("history");
       await onRefresh();
     } catch (e) {
-      console.error("Skill test submit failed:", e);
-      alert("Could not save skill test.");
+     console.error("Compare failed:", e);
+  alert(getAxiosMessage(e, "Could not compare selected jobs."));
     } finally {
       setSaving(false);
     }
@@ -534,10 +536,11 @@ export default function AppliedSavedJobsHub() {
           const res = await api.get("/api/user/applied-jobs", { params: { page: 1, limit: 10 } });
           const list: ApiJob[] =
             res.data?.appliedJobs ?? res.data?.AppliedJobs ?? (Array.isArray(res.data) ? res.data : []);
-          const norm = list.map(normalizeJob);
-          if (!cancelled) setAppliedJobs(norm);
-
-        } else if (activeTab === "saved") {
+          // attach status FIRST, then filter
+          const norm = list.map((j) => ({ ...normalizeJob(j), currentStatus: normalizeStatus(j) }));
+          if (!cancelled) setAppliedJobs(norm.filter(j => j.currentStatus !== "Rejected"));
+        }
+        else if (activeTab === "saved") {
           const res = await api.get("/api/user/saved-jobs", { params: { page: 1, limit: 10 } });
           const list: ApiJob[] =
             res.data?.savedJobs ?? res.data?.SavedJobs ?? (Array.isArray(res.data) ? res.data : []);
@@ -564,7 +567,9 @@ export default function AppliedSavedJobsHub() {
           if (!cancelled) {
             setRecommended(normRec);
             setSavedJobs(savedList.map(normalizeJob));
-            setAppliedJobs(appliedList.map(normalizeJob));
+            // 👇 attach status + drop rejected so badges don’t show “applied” for auto-rejects
+            const appliedNorm = appliedList.map((j) => ({ ...normalizeJob(j), currentStatus: normalizeStatus(j) }));
+            setAppliedJobs(appliedNorm.filter(j => j.currentStatus !== "Rejected"));
           }
 
         } else if (activeTab === "skilltest") {
@@ -583,7 +588,11 @@ export default function AppliedSavedJobsHub() {
             if (!cancelled) setTipsData(res.data || {});
           } catch (e: any) {
             console.error("AI resume tips failed:", e);
-            if (!cancelled) setTipsError(e?.data?.message || e?.message || "Could not load resume tips.");
+            const msg =
+              e?.response?.data?.message ||
+              e?.message ||
+              "Could not load resume tips.";
+            if (!cancelled) setTipsError(msg);
           } finally {
             if (!cancelled) setTipsLoading(false);
           }

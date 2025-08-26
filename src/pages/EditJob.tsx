@@ -28,6 +28,10 @@ type JobModel = {
 };
 
 export default function EditJob() {
+  const [autoRejectExperience, setAutoRejectExperience] = useState<boolean>(false);
+const [autoRejectLocation, setAutoRejectLocation] = useState<boolean>(false);
+const toBool = (v: any) => /^(true|1|yes|on)$/i.test(String(v ?? "").trim());
+
   const { jobId } = useParams<{ jobId: string }>();
   const nav = useNavigate();
   const [m, setM] = useState<JobModel>({
@@ -112,7 +116,11 @@ export default function EditJob() {
           const sMin = d.salaryMin ?? d.SalaryMin ?? null;
           const sMax = d.salaryMax ?? d.SalaryMax ?? null;
           const exp  = d.experienceRequired ?? d.ExperienceRequired ?? null;
-
+const arExp = findFilter(d.filters, "AutoRejectExperience") || d.autoRejectExperience;
+  const arLoc = findFilter(d.filters, "AutoRejectLocation")   || d.autoRejectLocation;
+  
+  setAutoRejectExperience(toBool(arExp));
+  setAutoRejectLocation(toBool(arLoc));
           // normalize date string for <input type="date">
           const rawExp = d.expiryDate ?? d.ExpiryDate;
           const expiryDate =
@@ -181,6 +189,8 @@ export default function EditJob() {
     if (m.expiryDate) fd.append("expiryDate", m.expiryDate);
     fd.append("isRemote", String(!!m.isRemote));
     fd.append("isUrgent", String(!!m.isUrgent));
+    fd.append("autoRejectExperience", autoRejectExperience ? "true" : "false");
+fd.append("autoRejectLocation",   autoRejectLocation ? "true" : "false");
 
     // metadata (keys match backend)
     if (m.industry) fd.append("industry", m.industry);
@@ -287,6 +297,28 @@ export default function EditJob() {
             <input className="border rounded p-2" value={m.skills || ""} onChange={(e)=>setM({...m, skills:e.target.value})}/>
           </label>
         </div>
+
+    <div className="space-y-2">
+  <h3 className="text-lg font-medium">Auto‑Reject Rules</h3>
+  <div className="flex flex-wrap gap-6">
+    <label className="flex items-center gap-2">
+      <input
+        type="checkbox"
+        checked={autoRejectExperience}
+        onChange={(e)=>setAutoRejectExperience(e.target.checked)}
+      />
+      <span>Reject if candidate experience is less than required</span>
+    </label>
+    <label className="flex items-center gap-2">
+      <input
+        type="checkbox"
+        checked={autoRejectLocation}
+        onChange={(e)=>setAutoRejectLocation(e.target.checked)}
+      />
+      <span>Reject if candidate location ≠ job location</span>
+    </label>
+  </div>
+</div>
 
         <button className="bg-blue-600 text-white px-4 py-2 rounded">Save changes</button>
       </form>

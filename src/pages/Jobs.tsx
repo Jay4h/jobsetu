@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import api, { onAuthChanged, authStorage } from "../lib/api";
 import FilterPanel, { type Filters } from "../components/FilterPanel";
 import JobCard, { JobCardSkeleton } from "../components/JobCard";
+import { toast } from "react-toastify";
 
 type Job = {
   jobId: number;
@@ -121,32 +122,63 @@ export default function Jobs() {
     return () => { mounted = false; };
   }, []);
 
-  // ---- required handlers for JobCard ----
-  const handleApply = async (jobId: number) => {
-    try {
-      await api.post(`/api/jobs/apply/${jobId}`);
-      setJobs(prev => prev.map(j => j.jobId === jobId ? { ...j, isApplied: true, isSaved: false } : j));
-    } catch (e) {
-      console.warn("[jobs] apply failed", e);
+const handleApply = async (jobId: number) => {
+  // treat ANY HTTP status as "resolved"; we'll branch on res.status
+  const res = await api.post(
+    "/api/jobs/apply",
+    String(jobId),
+    {
+      headers: { "Content-Type": "text/plain" },
+      transformRequest: [(d) => d],           // keep body exactly "123"
+      validateStatus: () => true,             // ← prevent Axios rejection (no red console line)
     }
-  };
+  );
+
+  // 200 => success
+  if (res.status >= 200 && res.status < 300) {
+    setJobs(prev =>
+      prev.map(j => j.jobId === jobId ? { ...j, isApplied: true, isSaved: false } : j)
+    );
+    toast.success("Application submitted successfully.");
+    return;
+  }
+
+  // map server’s structured errors
+  const raw = res.data;
+  const code = raw?.code;
+  const msg  = typeof raw === "string" ? raw : raw?.message;
+  const reason = raw?.reason;
+
+  if (code === "AUTO_REJECT") {
+    const detail =
+      reason === "LocationMismatch"
+        ? "Your profile location doesn’t match the job location."
+        : reason === "ExperienceBelowRequirement"
+        ? "Your experience is below the required years."
+        : null;
+    toast.info(detail ? `Application auto‑rejected: ${detail}` : (msg || "Application auto‑rejected."));
+    return;
+  }
+  if (code === "DUPLICATE") { toast.warn(msg || "You have already applied to this job."); return; }
+  if (code === "NO_RESUME") { toast.error(msg || "No active resume found. Please upload your resume."); return; }
+
+  // generic
+  toast.error(msg || "Failed to apply. Please try again.");
+};
+
 
   const handleWithdraw = async (jobId: number) => {
     try {
-      await api.post(`/api/jobs/withdraw/${jobId}`);
+      await api.delete(`/api/jobs/withdraw/${jobId}`);
       setJobs(prev => prev.map(j => j.jobId === jobId ? { ...j, isApplied: false } : j));
-    } catch (e) {
-      console.warn("[jobs] withdraw failed", e);
-    }
+    } catch {}
   };
 
   const handleUnsave = async (jobId: number) => {
     try {
-      await api.post(`/api/jobs/unsave/${jobId}`);
+      await api.delete(`/api/jobs/unsave/${jobId}`);
       setJobs(prev => prev.map(j => j.jobId === jobId ? { ...j, isSaved: false } : j));
-    } catch (e) {
-      console.warn("[jobs] unsave failed", e);
-    }
+    } catch {}
   };
   // --------------------------------------
 
@@ -231,9 +263,9 @@ export default function Jobs() {
             setFilters({});
             setPage(1);
           }}
-          onSaveSearch={() => {}}
+          onSaveSearch={() => { }}
           savedSearches={[]}
-          onLoadSaved={() => {}}
+          onLoadSaved={() => { }}
         />
       </div>
 
@@ -271,23 +303,23 @@ export default function Jobs() {
             : jobs.length === 0
               ? <EmptyState />
               : jobs.map((j) => (
-                  <JobCard
-                    key={j.jobId}
-                    jobId={j.jobId}
-                    title={j.title}
-                    location={j.location}
-                    company={j.company}
-                    tags={j.tags}
-                    salaryMin={j.salaryMin}
-                    salaryMax={j.salaryMax}
-                    isUrgent={j.isUrgent}
-                    isSaved={j.isSaved}
-                    isApplied={j.isApplied}
-                    onApply={() => handleApply(j.jobId)}
-                    onWithdraw={() => handleWithdraw(j.jobId)}
-                    onUnsave={() => handleUnsave(j.jobId)}
-                  />
-                ))}
+                <JobCard
+                  key={j.jobId}
+                  jobId={j.jobId}
+                  title={j.title}
+                  location={j.location}
+                  company={j.company}
+                  tags={j.tags}
+                  salaryMin={j.salaryMin}
+                  salaryMax={j.salaryMax}
+                  isUrgent={j.isUrgent}
+                  isSaved={j.isSaved}
+                  isApplied={j.isApplied}
+                  onApply={() => handleApply(j.jobId)}
+                  onWithdraw={() => handleWithdraw(j.jobId)}
+                  onUnsave={() => handleUnsave(j.jobId)}
+                />
+              ))}
         </div>
 
         <div className="mt-6 flex items-center justify-between">

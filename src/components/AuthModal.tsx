@@ -82,7 +82,7 @@ export default function AuthModal({ open, onClose, startTab = "login" }: Props) 
         Phone: phone.trim(),
         Password: password.trim(),
         Role: role,                 // "JobSeeker" | "Recruiter"
-        IsGdprAccepted: gdpr
+        IsGdprAccepted: gdpr        // ✅ keep this
       });
       setView({ tab: "register", step: 2 }); // go to OTP input
     } catch (e) {
@@ -195,16 +195,16 @@ export default function AuthModal({ open, onClose, startTab = "login" }: Props) 
 
         {/* forms */}
         {is.login && (
-  <form onSubmit={handleLogin} className="space-y-3">
-    <input className="input w-full" type="email" placeholder="Email"
-      value={email} onChange={e => setEmail(e.target.value)} required />
-    <input className="input w-full" type="password" placeholder="Password"
-      value={password} onChange={e => setPassword(e.target.value)} required />
-    <button type="submit" className="btn btn-primary w-full" disabled={loading}>
-      {loading ? "Please wait…" : "Login"}
-    </button>
-  </form>
-)}
+          <form onSubmit={handleLogin} className="space-y-3">
+            <input className="input w-full" type="email" placeholder="Email"
+              value={email} onChange={e => setEmail(e.target.value)} required />
+            <input className="input w-full" type="password" placeholder="Password"
+              value={password} onChange={e => setPassword(e.target.value)} required />
+            <button type="submit" className="btn btn-primary w-full" disabled={loading}>
+              {loading ? "Please wait…" : "Login"}
+            </button>
+          </form>
+        )}
 
 
         {is.reg1 && (

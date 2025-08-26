@@ -30,6 +30,7 @@ export default function ResumeChat() {
   const [loading, setLoading] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -61,7 +62,23 @@ export default function ResumeChat() {
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
-
+useEffect(() => {
+  function onDocClick(e: MouseEvent) {
+    if (!showTools) return;
+    if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      setShowTools(false);
+    }
+  }
+  function onEsc(e: KeyboardEvent) {
+    if (e.key === "Escape") setShowTools(false);
+  }
+  document.addEventListener("mousedown", onDocClick);
+  document.addEventListener("keydown", onEsc);
+  return () => {
+    document.removeEventListener("mousedown", onDocClick);
+    document.removeEventListener("keydown", onEsc);
+  };
+}, [showTools]);
   const send = async () => {
     const q = input.trim();
     if (!q) return;
@@ -143,7 +160,7 @@ export default function ResumeChat() {
               {mode ? MODES.find((m) => m.key === mode)?.label : "Auto"} ▾
             </button>
             {showTools && (
-              <div className="absolute right-0 mt-2 w-44 bg-white text-neutral-900 border border-neutral-200 rounded-xl shadow-lg z-20">
+              <div ref={menuRef} className="absolute right-0 mt-2 w-44 bg-white text-neutral-900 border border-neutral-200 rounded-xl shadow-lg z-50 max-h-80 overflow-y-auto">
                 {MODES.map((m) => (
                   <button
                     key={m.key || "auto"}

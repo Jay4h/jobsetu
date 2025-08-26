@@ -67,6 +67,15 @@ export default function PostJob() {
   const [submitting, setSubmitting] = useState(false);
   const errRef = useRef<HTMLDivElement | null>(null);
 
+  // NEW: auto-reject toggles (kept separate to avoid touching your FormState)
+  const [autoRejectExperience, setAutoRejectExperience] = useState<boolean>(true);
+  const [autoRejectLocation, setAutoRejectLocation] = useState<boolean>(false);
+
+  // NEW: bulk upload modal state
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+
   const nav = useNavigate();
 
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -142,6 +151,10 @@ export default function PostJob() {
     fd.append("tags", tags.join(","));
     fd.append("skills", skills.join(","));
 
+    // NEW: send auto-reject flags (backend will ignore if not used)
+    fd.append("autoRejectExperience", autoRejectExperience ? "true" : "false");
+    fd.append("autoRejectLocation", autoRejectLocation ? "true" : "false");
+
     try {
       setSubmitting(true);
       await api.post("/api/recruiter/post-job", fd, {
@@ -155,8 +168,7 @@ export default function PostJob() {
       toast.success("Job posted");
       nav("/recruiter/jobs");
     } catch (err: any) {
-      const { status, code, message, data } = extractApiError(err);
-
+      const { status, code, message } = extractApiError(err);
       if (status === 409 || code === "DUPLICATE_JOB") {
         setFormError(message);
         toast.warning(message);
@@ -170,10 +182,58 @@ export default function PostJob() {
     }
   }
 
+  // NEW: bulk upload handler
+  async function uploadBulk() {
+    if (!bulkFile) {
+      toast.info("Please choose an Excel (.xlsx) file.");
+      return;
+    }
+    const okExt = /\.xlsx$/i.test(bulkFile.name);
+    if (!okExt) {
+      toast.error("Only .xlsx files are supported.");
+      return;
+    }
+    try {
+      setBulkUploading(true);
+      const fd = new FormData();
+      fd.append("file", bulkFile);
+      const res = await api.post("/api/recruiter/bulk-upload", fd, {
+        headers: { Accept: "application/json" },
+        transformRequest: [(data, headers) => {
+          delete (headers as any)["Content-Type"];
+          return data;
+        }],
+      });
+      const msg =
+        typeof res?.data?.message === "string"
+          ? res.data.message
+          : "Bulk job upload completed.";
+      const succ = res?.data?.success ?? 0;
+      const fail = res?.data?.failed ?? 0;
+      toast.success(`${msg}  Success: ${succ}  Failed: ${fail}`);
+      setShowBulkModal(false);
+      setBulkFile(null);
+    } catch (err: any) {
+      const { message } = extractApiError(err);
+      toast.error(message);
+    } finally {
+      setBulkUploading(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-4 lg:px-0 py-10">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Post Job</h1>
+
+        {/* NEW: Bulk Upload trigger button */}
+        <button
+          type="button"
+          onClick={() => setShowBulkModal(true)}
+          className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50"
+        >
+          Bulk Upload (.xlsx)
+        </button>
       </div>
 
       <form onSubmit={submit} className="rounded-2xl border bg-white shadow-sm p-6 space-y-6">
@@ -299,6 +359,23 @@ export default function PostJob() {
           />
         </div>
 
+        {/* NEW: Auto-Reject rules section */}
+        <div className="space-y-2">
+          <h3 className="text-lg font-medium">Auto‑Reject Rules</h3>
+          <div className="flex flex-wrap gap-6">
+            <Switch
+              checked={autoRejectExperience}
+              onChange={(e: any) => setAutoRejectExperience(e.target?.checked ?? !autoRejectExperience)}
+              label="Reject if candidate experience is less than required"
+            />
+            <Switch
+              checked={autoRejectLocation}
+              onChange={(e: any) => setAutoRejectLocation(e.target?.checked ?? !autoRejectLocation)}
+              label="Reject if candidate location ≠ job location"
+            />
+          </div>
+        </div>
+
         <div className="flex items-center justify-end gap-3">
           <button
             className="px-5 py-2 rounded-xl bg-black text-white hover:opacity-90 disabled:opacity-60"
@@ -308,6 +385,56 @@ export default function PostJob() {
           </button>
         </div>
       </form>
+
+      {/* NEW: Bulk Upload Modal */}
+      {showBulkModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] z-50 flex items-start justify-center pt-24">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Bulk Upload Jobs (.xlsx)</h3>
+              <button
+                className="text-gray-500 hover:text-black"
+                onClick={() => setShowBulkModal(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-3">
+              Choose an Excel file (.xlsx) with columns: Title, Description, Location, SalaryMin, SalaryMax, Experience, ExpiryDate, Skill, Tag, Industry, Department, CompanyType, RoleCategory, Education, Stipend, Duration, PostedBy, TopCompanies, IsRemote, IsUrgent.
+            </p>
+
+            <div className="space-y-3">
+              <input
+                type="file"
+                accept=".xlsx"
+                onChange={(e) => setBulkFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm"
+              />
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl border hover:bg-gray-50"
+                  onClick={() => setShowBulkModal(false)}
+                  disabled={bulkUploading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl bg-black text-white hover:opacity-90 disabled:opacity-60"
+                  onClick={uploadBulk}
+                  disabled={bulkUploading}
+                >
+                  {bulkUploading ? "Uploading…" : "Upload"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

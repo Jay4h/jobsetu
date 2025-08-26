@@ -1,3 +1,4 @@
+//RecruiterProfile.tsx
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../lib/api";
@@ -28,16 +29,45 @@ type ApiResp = {
     expiredJobs: number;
     pendingJobs?: number;
   };
+
 };
+
+/* ---------- GDPR: minimal types (added) ---------- */
+type ConsentItem = {
+  consentId: number;
+  userId: number;
+  isAccepted: boolean;
+  consentDate: string;   // ISO string
+  consentType?: string;
+  version?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  isCurrent?: boolean;
+};
+
+type ConsentResp = {
+  total: number;
+  current?: ConsentItem | null;
+  items: ConsentItem[];
+};
+// --------------------------------------------------
 
 // Make any media path absolute using your API base URL
 function toAbsoluteMedia(path?: string | null) {
   if (!path) return "";
   if (/^https?:\/\//i.test(path)) return path; // already absolute
-const base = (import.meta as any).env?.VITE_API_BASE_URL || "";
+  const base = (import.meta as any).env?.VITE_API_BASE_URL || "";
   const cleanBase = String(base).replace(/\/+$/, "");
   const cleanPath = ("/" + String(path)).replace(/\/+/, "/");
   return cleanBase + cleanPath;
+}
+function fmtDate(dt?: string) {
+  if (!dt) return "—";
+  const s = String(dt);
+  // handle ASP.NET /Date(1692960000000)/ and ISO strings
+  const m = s.match(/\/Date\((\d+)\)\//);
+  const d = m ? new Date(Number(m[1])) : new Date(s);
+  return isNaN(d.getTime()) ? "—" : d.toLocaleString();
 }
 
 export default function RecruiterProfile() {
@@ -45,6 +75,12 @@ export default function RecruiterProfile() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [imgOk, setImgOk] = useState(true);
+
+  /* ---------- GDPR: state (added) ---------- */
+  const [consents, setConsents] = useState<ConsentResp | null>(null);
+  const [consentsErr, setConsentsErr] = useState<string | null>(null);
+  const [consentsLoading, setConsentsLoading] = useState<boolean>(true);
+  // ------------------------------------------
 
   useEffect(() => {
     api
@@ -59,6 +95,54 @@ export default function RecruiterProfile() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+/* ---------- GDPR: fetch logs (fixed mapping) ---------- */
+useEffect(() => {
+  setConsentsLoading(true);
+
+  api
+    .get("/api/recruiter/consents", { suppressUnauthorized: true })
+    .then((r) => {
+      const raw = r.data || {};
+
+      const items: ConsentItem[] = (raw.items || []).map((x: any) => ({
+        consentId: x.ConsentId,
+        userId: x.UserId,
+        isAccepted: !!x.IsAccepted,
+        consentDate: x.ConsentDate,      // string or /Date(...)/ is fine; fmtDate handles both
+        consentType: x.ConsentType,
+        version: x.Version,
+        ipAddress: x.IpAddress,
+        userAgent: x.UserAgent,
+        isCurrent: !!x.IsCurrent,
+      }));
+
+      const currentRaw = raw.current || null;
+      const current: ConsentItem | null = currentRaw
+        ? {
+            consentId: currentRaw.ConsentId,
+            userId: currentRaw.UserId,
+            isAccepted: !!currentRaw.IsAccepted,
+            consentDate: currentRaw.ConsentDate,
+            consentType: currentRaw.ConsentType,
+            version: currentRaw.Version,
+            ipAddress: currentRaw.IpAddress,
+            userAgent: currentRaw.UserAgent,
+            isCurrent: !!currentRaw.IsCurrent,
+          }
+        : null;
+
+      setConsents({
+        total: typeof raw.total === "number" ? raw.total : items.length,
+        current,
+        items,
+      });
+    })
+    .catch((e) => setConsentsErr(e.message || "Failed to load consents"))
+    .finally(() => setConsentsLoading(false));
+}, []);
+
+  // -----------------------------------------------
 
   if (loading)
     return <div className="max-w-7xl mx-auto px-4 lg:px-6 py-10">Loading…</div>;
@@ -202,6 +286,102 @@ export default function RecruiterProfile() {
           )}
         </div>
       </div>
+
+      {/* ---------- GDPR: Consent Log UI (added) ---------- */}
+      <div className="bg-white border rounded-xl p-6 shadow-sm mt-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">GDPR Consent Logs</h2>
+          {consents?.total != null && (
+            <span className="text-sm text-gray-500">Total: {consents.total}</span>
+          )}
+        </div>
+
+        {consentsLoading && <div>Loading consent logs…</div>}
+        {consentsErr && <div className="text-red-600 text-sm">{consentsErr}</div>}
+
+        {!consentsLoading && !consentsErr && consents?.items?.length === 0 && (
+          <div className="text-gray-600 text-sm">No consent records found.</div>
+        )}
+
+        {!consentsLoading && !consentsErr && !!consents?.items?.length && (
+          <>
+            {consents.current && (
+              <div className="mb-4 rounded-lg border bg-gray-50 p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-medium">Current Consent</span>
+                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-green-100 text-green-700 border border-green-200">
+                    Active
+                  </span>
+                </div>
+                <div className="text-xs text-gray-700 space-y-1">
+                  <div>
+                    <span className="font-medium">Type:</span>{" "}
+                    {consents.current.consentType || "GDPR"} (
+                    {consents.current.version || "v1.0"})
+                  </div>
+                  <div>
+                    <span className="font-medium">Accepted:</span>{" "}
+                    {consents.current.isAccepted ? "Yes" : "No"}
+                  </div>
+                  <div>
+                    <span className="font-medium">Date:</span>{" "}
+                    {fmtDate(consents.current.consentDate)}
+                  </div>
+                  {consents.current.ipAddress && (
+                    <div>
+                      <span className="font-medium">IP:</span>{" "}
+                      {consents.current.ipAddress}
+                    </div>
+                  )}
+                  {consents.current.userAgent && (
+                    <div className="truncate">
+                      <span className="font-medium">UA:</span>{" "}
+                      {consents.current.userAgent}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-600">
+                    <th className="py-2 pr-4">#</th>
+                    <th className="py-2 pr-4">Date</th>
+                    <th className="py-2 pr-4">Type</th>
+                    <th className="py-2 pr-4">Version</th>
+                    <th className="py-2 pr-4">Accepted</th>
+                    <th className="py-2 pr-4">IP</th>
+                    <th className="py-2 pr-4">User Agent</th>
+                    <th className="py-2">Current</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {consents.items.map((c, i) => (
+                    <tr key={`${c.consentId ?? 'x'}-${i}`} className="border-t">
+                      <td className="py-2 pr-4">{c.consentId}</td>
+                      <td className="py-2 pr-4">{fmtDate(c.consentDate)}</td>
+                      <td className="py-2 pr-4">{c.consentType || "GDPR"}</td>
+                      <td className="py-2 pr-4">{c.version || "v1.0"}</td>
+                      <td className="py-2 pr-4">{c.isAccepted ? "Yes" : "No"}</td>
+                      <td className="py-2 pr-4">{c.ipAddress || "—"}</td>
+                      <td className="py-2 pr-4">
+                        <span title={c.userAgent || ""} className="block max-w-[360px] truncate">
+                          {c.userAgent || "—"}
+                        </span>
+                      </td>
+                      <td className="py-2">{c.isCurrent ? "✅" : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+      {/* ---------- end GDPR (added) ---------- */}
     </div>
   );
 }
