@@ -14,7 +14,7 @@ import { setUnauthorizedHandler } from "./lib/api";
 import Profile from "./pages/Profile";
 import AppliedSavedJobsHub from "./pages/AppliedSavedJobsHub";
 import { openAuth } from "./lib/authGate";
-
+import Messages from "./pages/Messages";
 // ✅ Recruiter pages
 import RecruiterProfile from "./pages/RecruiterProfile";
 import RecruiterJobs from "./pages/RecruiterJobs";
@@ -58,7 +58,7 @@ export default function App() {
         <Route path="/onboarding/recruiter" element={<OnboardRecruiter />} />
         {/* Profile (Job Seeker) */}
         <Route path="/profile" element={<Profile />} />
-
+<Route path="/messages" element={<Messages />} />
         {/* ✅ Recruiter (Protected) */}
         <Route
           path="/recruiter/profile"

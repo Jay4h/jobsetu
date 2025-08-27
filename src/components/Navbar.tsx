@@ -77,9 +77,8 @@ export default function Navbar() {
     window.location.assign("/");
   }
 
-  // ---- SignalR unread counter (via Vite proxy + generated hubs) ----
+  // ---- jQuery SignalR hub for unread + notifications ----
   useEffect(() => {
-    // @ts-ignore jQuery is loaded globally in index.html
     const $: any = (window as any).$;
     if (!$ || !$.connection) return;
 
@@ -94,42 +93,44 @@ export default function Navbar() {
         } else {
           setUnread(0);
         }
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     }
 
     async function init() {
       const token = authStorage.getToken();
 
-      // logged out → clear & (optionally) stop hub
       if (!token) {
         setUnread(0);
         try {
-          if ($.connection.hub && $.connection.hub.state !== 4 /* disconnected */) {
+          if ($.connection.hub && $.connection.hub.state !== 4) {
             $.connection.hub.stop();
           }
         } catch {}
         return;
       }
 
-      // initial count
       await fetchUnread(token);
 
-      // generated proxy from /signalr/hubs
       const hub = $.connection.chatHub;
       hub.client = hub.client || {};
+
+      // unread count updates
       hub.client.updateUnread = (payload: { count: number }) => {
         if (typeof payload?.count === "number") setUnread(payload.count);
       };
-      hub.client.receiveMessage = () => fetchUnread(token);
+
+      // new message event
+      hub.client.receiveMessage = (msg: any) => {
+        fetchUnread(token);
+        showNotification("📩 New Message", msg?.MessageText || "You got a new message");
+      };
+
+      // when messages marked as read
       hub.client.read = () => fetchUnread(token);
 
-      // target the proxied path and pass JWT
       $.connection.hub.url = "/signalr";
       $.connection.hub.qs = { access_token: token };
 
-      // register a single reconnect handler per page
       const w = window as any;
       if (!w.__chatHubReconnectBound) {
         w.__chatHubReconnectBound = true;
@@ -148,22 +149,30 @@ export default function Navbar() {
         });
       }
 
-      // start only if disconnected
       try {
-        if ($.connection.hub.state === 4 /* disconnected */) {
+        if ($.connection.hub.state === 4) {
           await $.connection.hub.start();
         }
-      } catch {
-        // ignore; it will retry on next auth change or disconnect callback
-      }
+      } catch {}
     }
 
     init();
-
-    return () => {
-      // keep the shared hub alive; no stop here
-    };
+    return () => {};
   }, [user]);
+
+  // ---- Desktop notification helper ----
+  function showNotification(title: string, body: string) {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "granted") {
+      new Notification(title, { body });
+    } else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then((perm) => {
+        if (perm === "granted") {
+          new Notification(title, { body });
+        }
+      });
+    }
+  }
 
   const initials = makeInitials(user?.fullName);
 
@@ -233,37 +242,39 @@ export default function Navbar() {
                   <div role="menu" className="absolute right-0 top-12 w-56 bg-white border rounded-xl shadow-lg overflow-hidden">
                     <div className="px-3 py-2 text-xs text-gray-500">{user.role ? `Role: ${user.role}` : "Signed in"}</div>
 
-                    <button
-                      role="menuitem"
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                    <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
                       onClick={() => {
                         setMenuOpen(false);
                         if (user.role === "Recruiter") nav("/recruiter/profile");
                         else nav("/profile");
-                      }}
-                    >
+                      }}>
                       Profile
                     </button>
 
                     {user.role === "Recruiter" ? (
                       <>
-                        <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => { setMenuOpen(false); nav("/recruiter/jobs"); }}>
+                        <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                          onClick={() => { setMenuOpen(false); nav("/recruiter/jobs"); }}>
                           My Jobs
                         </button>
-                        <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => { setMenuOpen(false); nav("/recruiter/post"); }}>
+                        <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                          onClick={() => { setMenuOpen(false); nav("/recruiter/post"); }}>
                           Post a Job
                         </button>
-                        <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => { setMenuOpen(false); nav("/recruiter/analytics"); }}>
+                        <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                          onClick={() => { setMenuOpen(false); nav("/recruiter/analytics"); }}>
                           Analytics
                         </button>
                       </>
                     ) : (
-                      <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => { setMenuOpen(false); nav("/applied-saved-jobs"); }}>
-                        Applied &amp; Saved Jobs
+                      <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                        onClick={() => { setMenuOpen(false); nav("/applied-saved-jobs"); }}>
+                        Applied & Saved Jobs
                       </button>
                     )}
 
-                    <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={handleLogout}>
+                    <button role="menuitem" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                      onClick={handleLogout}>
                       Logout
                     </button>
                   </div>
