@@ -1,4 +1,3 @@
-// src/pages/EditCompany.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import api, { multipart, normalizeApiError, absUrl } from "../lib/api";
 import { toast } from "react-toastify";
@@ -10,7 +9,7 @@ type Company = {
   description: string;
   industry: string;
   type: string;
-  logoUrl?: string | null; // API may return logoUrl or logo
+  logoUrl?: string | null;
   logo?: string | null;
 };
 
@@ -49,24 +48,29 @@ export default function EditCompany() {
     if (logo) return URL.createObjectURL(logo);
     const url = model.logoUrl || model.logo || "";
     if (!url) return "";
-    // make relative paths absolute to your API base
     return /^https?:\/\//i.test(url) ? url : absUrl(url);
   }, [logo, model.logoUrl, model.logo]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (!model.name.trim()) {
+      toast.error("Company name is required");
+      return;
+    }
+
     const fd = new FormData();
-    fd.append("name", model.name || "");
-    fd.append("website", model.website || "");
-    fd.append("description", model.description || "");
-    fd.append("industry", model.industry || "");
-    fd.append("type", model.type || "");
-    if (logo) fd.append("file", logo); // backend treats this as the new logo
+    fd.append("name", model.name.trim());
+    fd.append("website", model.website?.trim() || "");
+    fd.append("description", model.description?.trim() || "");
+    fd.append("industry", model.industry?.trim() || "");
+    fd.append("type", model.type?.trim() || "");
+    if (logo) fd.append("logo", logo); // 🔧 match onboarding form
 
     try {
       await api.put("/api/recruiter/edit-company", fd, multipart);
-      toast.success("Company updated");
-      nav("/recruiter/profile");
+      toast.success("Company updated successfully");
+      nav("/recruiter/profile", { replace: true });
     } catch (err) {
       toast.error(normalizeApiError(err).message);
     }
@@ -81,7 +85,7 @@ export default function EditCompany() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Name">
             <input
-              className="border rounded p-2"
+              className="input"
               value={model.name}
               onChange={(e) => setModel({ ...model, name: e.target.value })}
               required
@@ -89,30 +93,32 @@ export default function EditCompany() {
           </Field>
           <Field label="Website">
             <input
-              className="border rounded p-2"
+              className="input"
               value={model.website || ""}
               onChange={(e) => setModel({ ...model, website: e.target.value })}
+              placeholder="https://example.com"
             />
           </Field>
           <Field label="Industry">
             <input
-              className="border rounded p-2"
+              className="input"
               value={model.industry || ""}
               onChange={(e) => setModel({ ...model, industry: e.target.value })}
             />
           </Field>
           <Field label="Company Type">
             <input
-              className="border rounded p-2"
+              className="input"
               value={model.type || ""}
               onChange={(e) => setModel({ ...model, type: e.target.value })}
+              placeholder="Private / Public / Startup…"
             />
           </Field>
         </div>
 
         <Field label="Description">
           <textarea
-            className="border rounded p-2"
+            className="input min-h-[100px]"
             rows={5}
             value={model.description || ""}
             onChange={(e) => setModel({ ...model, description: e.target.value })}
@@ -130,7 +136,6 @@ export default function EditCompany() {
               src={logoPreview}
               className="h-12 w-12 rounded object-cover bg-gray-100"
               alt="Company logo"
-              onLoad={() => logo && URL.revokeObjectURL(logoPreview)}
             />
           ) : (
             <div className="h-12 w-12 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-500">
@@ -140,12 +145,10 @@ export default function EditCompany() {
         </div>
 
         <div className="flex gap-3">
-          <button className="bg-blue-600 text-white px-4 py-2 rounded">
-            Save
-          </button>
+          <button className="btn btn-primary">Save</button>
           <button
             type="button"
-            className="px-4 py-2 rounded border"
+            className="btn"
             onClick={() => nav("/recruiter/profile")}
           >
             Cancel

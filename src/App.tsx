@@ -24,7 +24,6 @@ import Applicants from "./pages/Applicants";
 import RecruiterAnalytics from "./pages/RecruiterAnalytics";
 import SavedApplicants from "./pages/SavedApplicants";
 import EditCompany from "./pages/EditCompany";
-
 function AppLayout() {
   const loc = useLocation();
   const showGate = !/^\/onboarding(\/|$)/i.test(loc.pathname); // ⬅️ skip on onboarding
@@ -57,7 +56,6 @@ export default function App() {
         {/* Onboarding */}
         <Route path="/onboarding/seeker" element={<OnboardSeeker />} />
         <Route path="/onboarding/recruiter" element={<OnboardRecruiter />} />
-
         {/* Profile (Job Seeker) */}
         <Route path="/profile" element={<Profile />} />
 

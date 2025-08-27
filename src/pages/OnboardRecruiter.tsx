@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
+import { toast } from "react-toastify";
 
 type Form = {
   name: string;
   website: string;
   industry: string;
-  type: string; // Private, Public, etc.
+  type: string; // Private, Public, Startup…
   description: string;
   logo?: File | null;
 };
@@ -29,26 +30,29 @@ export default function OnboardRecruiter() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
+    if (!f.name.trim()) {
+      toast.error("Company name is required");
+      return;
+    }
     setSubmitting(true);
 
     try {
-      // If your backend expects multipart for logo, use FormData:
       const fd = new FormData();
-      fd.append("name", f.name);
-      fd.append("website", f.website);
-      fd.append("industry", f.industry);
-      fd.append("type", f.type);
-      fd.append("description", f.description);
+      fd.append("name", f.name.trim());
+      fd.append("website", f.website.trim());
+      fd.append("industry", f.industry.trim());
+      fd.append("type", f.type.trim());
+      fd.append("description", f.description.trim());
       if (f.logo) fd.append("logo", f.logo);
 
       await api.post("/api/recruiter/create-company", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      // Go to jobs or recruiter dashboard
-      navigate("/jobs", { replace: true });
+      toast.success("Company profile created successfully");
+      navigate("/recruiter/profile", { replace: true });
     } catch (err: any) {
-      alert(err?.data?.message || err?.message || "Couldn't create company");
+      toast.error(err?.response?.data?.message || "Couldn't create company");
     } finally {
       setSubmitting(false);
     }
@@ -65,40 +69,75 @@ export default function OnboardRecruiter() {
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Company name</label>
-            <input className="input" value={f.name} onChange={(e) => set("name", e.target.value)} required />
+            <input
+              className="input"
+              value={f.name}
+              onChange={(e) => set("name", e.target.value)}
+              required
+            />
           </div>
           <div>
             <label className="label">Website</label>
-            <input className="input" value={f.website} onChange={(e) => set("website", e.target.value)} />
+            <input
+              className="input"
+              value={f.website}
+              onChange={(e) => set("website", e.target.value)}
+              placeholder="https://example.com"
+            />
           </div>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Industry</label>
-            <input className="input" value={f.industry} onChange={(e) => set("industry", e.target.value)} />
+            <input
+              className="input"
+              value={f.industry}
+              onChange={(e) => set("industry", e.target.value)}
+            />
           </div>
           <div>
             <label className="label">Company type</label>
-            <input className="input" placeholder="Private / Public / Startup…" value={f.type}
-                   onChange={(e) => set("type", e.target.value)} />
+            <input
+              className="input"
+              placeholder="Private / Public / Startup…"
+              value={f.type}
+              onChange={(e) => set("type", e.target.value)}
+            />
           </div>
         </div>
 
         <div>
           <label className="label">Description</label>
-          <textarea className="input min-h-[100px]" value={f.description}
-                    onChange={(e) => set("description", e.target.value)} />
+          <textarea
+            className="input min-h-[100px]"
+            value={f.description}
+            onChange={(e) => set("description", e.target.value)}
+          />
         </div>
 
         <div>
           <label className="label">Logo</label>
-          <input className="input" type="file" accept="image/*"
-                 onChange={(e) => set("logo", e.target.files?.[0] || null)} />
+          <input
+            className="input"
+            type="file"
+            accept="image/*"
+            onChange={(e) => set("logo", e.target.files?.[0] || null)}
+          />
+          {f.logo && (
+            <img
+              src={URL.createObjectURL(f.logo)}
+              alt="Logo preview"
+              className="mt-2 h-20 rounded border"
+            />
+          )}
         </div>
 
         <div className="pt-2">
-          <button className="btn btn-primary" disabled={submitting}>
+          <button
+            className="btn btn-primary disabled:opacity-50"
+            disabled={submitting}
+          >
             {submitting ? "Creating…" : "Create company"}
           </button>
         </div>
