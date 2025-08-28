@@ -231,17 +231,17 @@ export default function Messages() {
     useEffect(() => {
         const $: any = (window as any).$ || (window as any).jQuery;
         const token = authStorage.getToken();
-
-        // Don’t start without jQuery SignalR, hub, or token
-        if (!$ || !$.connection || !$.connection.hub || !token) return;
-        if (startedRef.current) return;
+        if (!$?.connection?.hub || !token) return;
 
         $.connection.hub.url = `${API_BASE}/signalr`;
         $.connection.hub.qs = { access_token: token };
-        $.connection.hub.logging = false; // keep console clean
 
         const hub = $.connection.chatHub;
         hub.client = hub.client || {};
+
+        // ⬇️ keep anything that was already attached (e.g. from Navbar)
+        const prevNew = hub.client.newMessage;
+        const prevRecv = hub.client.receiveMessage;
 
         const onIncoming = async (raw: any) => {
             const msg = normalizeMsg(raw);
@@ -250,42 +250,38 @@ export default function Messages() {
                 (msg.senderId === activeUser.userId || msg.receiverId === activeUser.userId)
             ) {
                 await loadMessages(activeUser.userId);
+                // optimistic clear for this peer
                 setConversations(prev =>
                     prev.map(c => (c.userId === activeUser.userId ? { ...c, unread: 0 } : c))
                 );
+                // let Navbar refresh its badge too
+                window.dispatchEvent(new CustomEvent("chat:unread-changed"));
             } else {
                 await loadConversations();
+                window.dispatchEvent(new CustomEvent("chat:unread-changed"));
             }
         };
 
-        hub.client.newMessage = onIncoming;
-        hub.client.receiveMessage = onIncoming;
+        // ⬇️ chain instead of overwrite
+        hub.client.newMessage = (...args: any[]) => {
+            try { prevNew?.(...args); } catch { }
+            onIncoming(args[0]);
+        };
+        hub.client.receiveMessage = (...args: any[]) => {
+            try { prevRecv?.(...args); } catch { }
+            onIncoming(args[0]);
+        };
 
-        startedRef.current = true;
-        $.connection.hub
-            .start({ transport: ["serverSentEvents", "longPolling"] })
-            .done(() => console.log("SignalR connected"))
-            // Don’t log the negotiation failure; let the hub.error filter below handle real errors
-            .fail(() => {
-                // if it truly failed to start, allow another attempt later
-                startedRef.current = false;
-            });
-
-        // Ignore the common “Error during negotiation request” noise
-        $.connection.hub.error((err: any) => {
-            const msg = String(err?.message || err || "");
-            if (/during negotiation/i.test(msg)) return;
-            if ($.connection.hub.state !== 1) console.error("SignalR error:", err);
-        });
+        // start if needed
+        if ($.connection.hub.state === 4) {
+            $.connection.hub.start({ transport: ["serverSentEvents", "longPolling"] }).catch(() => { });
+        }
 
         return () => {
-            try {
-                if ($.connection.hub && $.connection.hub.state === 1) $.connection.hub.stop();
-            } finally {
-                startedRef.current = false;
-            }
+            // don't stop the hub here (Navbar also uses it)
         };
-    }, [activeUser, loadConversations, loadMessages]);
+    }, [activeUser]);
+
 
     // initial conversations
     useEffect(() => {

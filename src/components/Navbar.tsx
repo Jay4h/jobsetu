@@ -76,100 +76,108 @@ export default function Navbar() {
   }
 
   // 🔹 Setup SignalR + unread count
-useEffect(() => {
-  const $: any = (window as any).$;
-  if (!$ || !$.connection) return;
+  useEffect(() => {
+    const $: any = (window as any).$;
+    if (!$ || !$.connection) return;
 
-  // --- always available inside this effect ---
-  async function loadUnread() {
-    if (!user) {
-      setUnreadCount(0);
-      return;
-    }
-    const convos = await fetchConversations();
-    const total = Array.isArray(convos)
-      ? convos.reduce((s, c) => s + (c.unread || 0), 0)
-      : 0;
-    setUnreadCount(total);
-  }
-
-  async function init() {
-    const token = authStorage.getToken();
-    if (!token) {
-      try { if ($.connection.hub && $.connection.hub.state !== 4) $.connection.hub.stop(); } catch {}
-      return;
+    async function loadUnread() {
+      if (!user) { setUnreadCount(0); return; }
+      const convos = await fetchConversations();
+      const total = Array.isArray(convos)
+        ? convos.reduce((s, c) => s + (c.unread || 0), 0)
+        : 0;
+      setUnreadCount(total);
     }
 
-    // hub url + token
-    $.connection.hub.url = `${API_BASE}/signalr`;
-    $.connection.hub.qs = { access_token: token };
-
-    const hub = $.connection.chatHub;
-    hub.client = hub.client || {};
-
-    // ⚠️ chain existing handlers (don’t overwrite)
-    const prevNew  = hub.client.newMessage;
-    const prevRecv = hub.client.receiveMessage;
-    const prevRead = hub.client.markRead;
-
-    // small “kick” to avoid any race with DB writes
-    const kick = () => {
-      loadUnread();
-      setTimeout(loadUnread, 350);
-      setTimeout(loadUnread, 1200);
-    };
-
-    hub.client.newMessage = async (...args: any[]) => {
-      try { await prevNew?.(...args); } catch {}
-      kick();
-    };
-    hub.client.receiveMessage = async (...args: any[]) => {
-      try { await prevRecv?.(...args); } catch {}
-      kick();
-    };
-    hub.client.markRead = async (...args: any[]) => {
-      try { await prevRead?.(...args); } catch {}
-      kick();
-    };
-
-    // robust reconnect
-    const w = window as any;
-    if (!w.__chatHubReconnectBound) {
-      w.__chatHubReconnectBound = true;
-      $.connection.hub.disconnected(async () => {
-        const delay = 2000 + Math.floor(Math.random() * 1000);
-        setTimeout(async () => {
-          try {
-            const fresh = authStorage.getToken();
-            if (!fresh) return;
-            $.connection.hub.url = `${API_BASE}/signalr`;
-            $.connection.hub.qs = { access_token: fresh };
-            if ($.connection.hub.state === 4) {
-              await $.connection.hub.start({ transport: ["serverSentEvents", "longPolling"] });
-            }
-          } catch {}
-        }, delay);
-      });
-    }
-
-    try {
-      if ($.connection.hub.state === 4) {
-        await $.connection.hub.start({ transport: ["serverSentEvents", "longPolling"] });
+    async function init() {
+      const token = authStorage.getToken();
+      if (!token) {
+        try { if ($.connection.hub && $.connection.hub.state !== 4) $.connection.hub.stop(); } catch { }
+        return;
       }
-    } catch {}
-  }
 
-  init();
+      // hub url + token
+      $.connection.hub.url = `${API_BASE}/signalr`;
+      $.connection.hub.qs = { access_token: token };
 
-  // initial + periodic + “read” events from Messages page
-  loadUnread();
-  window.addEventListener("chat:unread-changed", loadUnread);
-  const timer = setInterval(loadUnread, 30000);
-  return () => {
-    clearInterval(timer);
-    window.removeEventListener("chat:unread-changed", loadUnread);
-  };
-}, [user]);
+      const hub = $.connection.chatHub;
+      hub.client = hub.client || {};
+
+      // chain existing handlers (don’t clobber)
+      const prevNew = hub.client.newMessage;
+      const prevRecv = hub.client.receiveMessage;
+      const prevRead = hub.client.markRead;
+
+      const me = authStorage.getUser()?.userId;
+
+      // fetch a couple of times after the push to avoid race with DB writes
+      const reconcile = () => {
+        loadUnread();
+        setTimeout(loadUnread, 400);
+        setTimeout(loadUnread, 1500);
+      };
+
+      hub.client.newMessage = async (payload: any, ...rest: any[]) => {
+        try { await prevNew?.(payload, ...rest); } catch { }
+        if (payload?.receiverId === me) {
+          // 👍 optimistic bump so it won't flash back to 0
+          setUnreadCount(n => n + 1);
+        }
+        reconcile();
+      };
+
+      hub.client.receiveMessage = async (payload: any, ...rest: any[]) => {
+        try { await prevRecv?.(payload, ...rest); } catch { }
+        if (payload?.receiverId === me) {
+          setUnreadCount(n => n + 1);
+        }
+        reconcile();
+      };
+
+      hub.client.markRead = async (...args: any[]) => {
+        try { await prevRead?.(...args); } catch { }
+        reconcile();
+      };
+
+      // reconnect
+      const w = window as any;
+      if (!w.__chatHubReconnectBound) {
+        w.__chatHubReconnectBound = true;
+        $.connection.hub.disconnected(async () => {
+          const delay = 2000 + Math.floor(Math.random() * 1000);
+          setTimeout(async () => {
+            try {
+              const fresh = authStorage.getToken(); if (!fresh) return;
+              $.connection.hub.url = `${API_BASE}/signalr`;
+              $.connection.hub.qs = { access_token: fresh };
+              if ($.connection.hub.state === 4) {
+                await $.connection.hub.start({ transport: ["serverSentEvents", "longPolling"] });
+              }
+            } catch { }
+          }, delay);
+        });
+      }
+
+      try {
+        if ($.connection.hub.state === 4) {
+          await $.connection.hub.start({ transport: ["serverSentEvents", "longPolling"] });
+        }
+      } catch { }
+    }
+
+    init();
+
+    // initial + periodic + external “read” events
+    loadUnread();
+    const onPing = () => loadUnread();
+    window.addEventListener("chat:unread-changed", onPing);
+    const timer = setInterval(loadUnread, 30000);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("chat:unread-changed", onPing);
+    };
+  }, [user]);
+
 
 
 
