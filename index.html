@@ -1,15 +1,24 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>JobSetu</title>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JobSetu</title>
+</head>
+<body>
+  <div id="root"></div>
 
-  </head>
+  <!-- 1) jQuery -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+  <!-- 2) Classic ASP.NET SignalR 2.x client (NOT microsoft-signalr) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/signalr.js/2.4.3/jquery.signalR.min.js"></script>
+
+  <!-- 3) Auto-generated hubs from your backend (match your API port/scheme) -->
+  <script src="https://localhost:44378/signalr/hubs"></script>
+
+  <!-- 4) Your app -->
+  <script type="module" src="/src/main.tsx"></script>
+</body>
 </html>

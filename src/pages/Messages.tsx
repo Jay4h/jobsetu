@@ -1,530 +1,515 @@
 // src/pages/Messages.tsx
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import api from "../lib/api";
+import { useEffect, useState, useRef } from "react";
+import { authStorage, fetchConversations } from "../lib/api";
 
 type Conversation = {
-  userId: number;
-  lastMessage?: string | null;
-  lastTimestamp?: string | null;
-  unread: number;
-  role: string;
-  fullName?: string | null;
-  companyName?: string | null;
-  logoUrl?: string | null;
+    userId: number;
+    lastMessage?: string | null;
+    lastTimestamp?: string | null;
+    unread: number;
+    fullName?: string;
+    companyName?: string;
+    logoUrl?: string;
 };
 
 type Message = {
-  messageId: number;
-  senderId: number;
-  receiverId: number;
-  messageText: string | null;
-  fileUrl: string | null;
-  fileType: string | null;
-  isRead: boolean;
-  sentAt: string; // ISO
+    id: number;
+    senderId: number;
+    receiverId: number;
+    text: string | null;
+    fileUrl: string | null;
+    sentAtUtc: string;
+    isRead: boolean;
 };
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || "";
-const DEFAULT_AVATAR = "/default-avatar.jpg";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const IST_TZ = "Asia/Kolkata";
 
-const fmtIST = (s?: string | null) =>
-  !s
-    ? ""
-    : new Date(s).toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-        timeZone: "Asia/Kolkata",
-      });
-
-function buildImageUrl(raw?: string | null) {
-  if (!raw) return DEFAULT_AVATAR;
-  if (raw.startsWith("http")) return raw;
-  return `${API_BASE}${raw}`;
-}
-function resolveAvatar(c?: Conversation | null) {
-  if (!c) return DEFAULT_AVATAR;
-  return c.role === "Recruiter" ? buildImageUrl(c.logoUrl) : DEFAULT_AVATAR;
+// ---------- helpers ----------
+function normalizeMsg(raw: any): Message {
+    return {
+        id: raw.messageId ?? raw.id ?? raw.Id,
+        senderId: raw.senderId ?? raw.SenderId,
+        receiverId: raw.receiverId ?? raw.ReceiverId,
+        text: raw.messageText ?? raw.text ?? raw.Text ?? null,
+        fileUrl: raw.fileUrl ?? raw.FileUrl ?? null,
+        sentAtUtc: raw.sentAt ?? raw.SentAt ?? raw.sentAtUtc ?? raw.SentAtUtc,
+        isRead: raw.isRead ?? raw.IsRead ?? false,
+    };
 }
 
-// normalize API casing (MessageId -> messageId, etc.)
-function normalizeMessages(list: any[]): Message[] {
-  return (list || []).map((m) => ({
-    messageId: m.MessageId ?? m.messageId,
-    senderId: m.SenderId ?? m.senderId,
-    receiverId: m.ReceiverId ?? m.receiverId,
-    messageText: m.MessageText ?? m.messageText ?? null,
-    fileUrl: m.FileUrl ?? m.fileUrl ?? null,
-    fileType: m.FileType ?? m.fileType ?? null,
-    isRead: m.IsRead ?? m.isRead ?? false,
-    sentAt: (m.SentAt ?? m.sentAt) as string,
-  }));
+// Accepts ISO or /Date(…)/ and returns a Date (UTC source)
+function parseDateish(s?: string | null): Date | null {
+    if (!s) return null;
+    // /Date(…)/ from old .NET
+    const ms = /^\/Date\((\d+)\)\/$/.exec(s);
+    if (ms) {
+        const d = new Date(parseInt(ms[1], 10));
+        return isNaN(d.getTime()) ? null : d;
+    }
+    // If ISO string has no timezone (no Z or ±hh:mm), treat it as UTC
+    const isoNoTz = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(s);
+    const fixed = isoNoTz ? s + "Z" : s;
+    const d2 = new Date(fixed);
+    return isNaN(d2.getTime()) ? null : d2;
+}
+
+
+// Force-display time in India (IST)
+function fmtTimeIST(s?: string | null): string {
+    const d = parseDateish(s);
+    if (!d) return "";
+    try {
+        return d.toLocaleTimeString("en-IN", {
+            timeZone: IST_TZ,
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+        });
+    } catch {
+        return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    }
+}
+function fmtDateIST(s?: string | null): string {
+    const d = parseDateish(s);
+    if (!d) return "";
+    try {
+        return d.toLocaleDateString("en-IN", {
+            timeZone: IST_TZ,
+            month: "short",
+            day: "numeric",
+        });
+    } catch {
+        return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
+}
+
+function toAbs(url?: string | null) {
+    if (!url) return "/default-avatar.jpg";
+    return url.startsWith("/") ? `${API_BASE}${url}` : url;
+}
+function isRecruiterItem(u: any) {
+    const t = u?.type || u?.Type;
+    return String(t).toLowerCase() === "recruiter";
+}
+function getMyIdFromToken(): number | null {
+    const tok = authStorage.getToken();
+    if (!tok) return null;
+    const parts = tok.split(".");
+    if (parts.length < 2) return null;
+    try {
+        const payload = JSON.parse(
+            atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))
+        );
+        const val =
+            payload.nameid ||
+            payload.sub ||
+            payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"] ||
+            payload["http://schemas.microsoft.com/ws/2008/06/identity/claims/nameidentifier"];
+        const n = parseInt(String(val), 10);
+        return Number.isFinite(n) ? n : null;
+    } catch {
+        return null;
+    }
 }
 
 export default function Messages() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [activeUser, setActiveUser] = useState<number | null>(null);
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [activeUser, setActiveUser] = useState<Conversation | null>(null);
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [input, setInput] = useState("");
+    const [search, setSearch] = useState("");
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [myId] = useState<number | null>(getMyIdFromToken());
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const bottomRef = useRef<HTMLDivElement>(null);
+    const startedRef = useRef(false);
+    const activeUserIdRef = useRef<number | null>(null);
+    useEffect(() => { activeUserIdRef.current = activeUser?.userId ?? null; }, [activeUser]);
 
-  const [text, setText] = useState("");
-  const [q, setQ] = useState("");
-  const [userRole, setUserRole] = useState<string | null>(null);
 
-  const [typingUser, setTypingUser] = useState<string | null>(null);
-  const [searchResults, setSearchResults] = useState<Conversation[]>([]);
-  const [sending, setSending] = useState(false);
+    const isMine = (senderId: number) => (myId != null ? senderId === myId : false);
 
-  // mobile sidebar
-  const [showList, setShowList] = useState(false);
-
-  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const messagesBoxRef = useRef<HTMLDivElement | null>(null);
-  const lastMessageRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("jobsetu_user");
-      if (saved) setUserRole(JSON.parse(saved)?.role || null);
-    } catch {}
-  }, []);
-
-  // loaders
-  const loadConversations = useCallback(async () => {
-    try {
-      const { data } = await api.get("/api/message/conversations");
-      setConversations(data.conversations || []);
-    } catch {
-      setConversations([]);
+    async function loadConversations() {
+        const convos = await fetchConversations();
+        setConversations(Array.isArray(convos) ? convos : []);
     }
-  }, []);
 
-  const loadMessages = useCallback(async (userId: number) => {
-    try {
-      const { data } = await api.get(`/api/message/chat/${userId}`);
-      setMessages(normalizeMessages(data.messages || []));
-    } catch {
-      setMessages([]);
+    async function loadMessages(userId: number) {
+        const token = authStorage.getToken();
+        if (!token) return;
+
+        const res = await fetch(`${API_BASE}/api/chat/messages/${userId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const list: Message[] = Array.isArray(data?.messages)
+                ? data.messages.map(normalizeMsg)
+                : [];
+
+            // de-dupe by id
+            const seen = new Set<number>();
+            const unique = list.filter((m) => {
+                if (seen.has(m.id)) return false;
+                seen.add(m.id);
+                return true;
+            });
+
+            setMessages(unique);
+
+            // mark as read on server
+            await fetch(`${API_BASE}/api/chat/read/${userId}`, {
+                method: "PUT",
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            window.dispatchEvent(new CustomEvent("chat:unread-changed"));
+
+
+            // optimistic: ensure unread=0 for this peer right away
+            setConversations((prev) =>
+                prev.map((c) => (c.userId === userId ? { ...c, unread: 0 } : c))
+            );
+
+            // then refresh list from server
+            await loadConversations();
+        }
     }
-  }, []);
 
-  useEffect(() => {
-    loadConversations();
-  }, [loadConversations]);
+    async function sendMessage() {
+        if (!activeUser || (!input && !fileInputRef.current?.files?.length)) return;
+        const token = authStorage.getToken();
+        if (!token) return;
 
-  // on conversation change
-  useEffect(() => {
-    if (!activeUser) return;
-    (async () => {
-      await loadMessages(activeUser);
-      try {
-        await api.post(`/api/message/read-all/${activeUser}`);
-        await loadConversations();
-      } catch {}
-    })();
-  }, [activeUser, loadMessages, loadConversations]);
+        const form = new FormData();
+        form.append("receiverId", String(activeUser.userId));
+        form.append("text", input || "");
+        if (fileInputRef.current?.files?.[0]) {
+            form.append("file", fileInputRef.current.files[0]);
+        }
 
-  // search (server-side)
-  async function handleSearch(value: string) {
-    setQ(value);
-    if (!value.trim()) {
-      setSearchResults([]);
-      return;
+        const res = await fetch(`${API_BASE}/api/chat/send`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: form,
+        });
+
+        if (res.ok) {
+            setInput("");
+            if (fileInputRef.current) fileInputRef.current.value = "";
+
+            // Reload the open thread first (so no temporary unread blip)
+            await loadMessages(activeUser.userId);
+
+            // After thread is fresh, reload list
+            await loadConversations();
+        }
     }
-    try {
-      const { data } = await api.get(
-        `/api/message/search?q=${encodeURIComponent(value)}`
-      );
-      setSearchResults(data.results || []);
-    } catch {
-      setSearchResults([]);
-    }
-  }
 
-  const listToShow = useMemo(
-    () => (q.trim() ? searchResults : conversations),
-    [q, searchResults, conversations]
-  );
+    // Hybrid search
+    useEffect(() => {
+        if (!search.trim()) {
+            setSearchResults([]);
+            return;
+        }
+        const token = authStorage.getToken();
+        if (!token) return;
+        const timer = setTimeout(async () => {
+            const res = await fetch(
+                `${API_BASE}/api/chat/search?query=${encodeURIComponent(search)}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (res.ok) {
+                const data = await res.json();
+                setSearchResults(Array.isArray(data) ? data : []);
+            }
+        }, 400);
+        return () => clearTimeout(timer);
+    }, [search]);
 
-  // send message
-  async function handleSend(e: React.FormEvent) {
-    e.preventDefault();
-    if (!activeUser) return;
-    const textToSend = text.trim();
-    if (!textToSend) return;
+    // SignalR (2.x jQuery)
+    useEffect(() => {
+        const $: any = (window as any).$ || (window as any).jQuery;
+        const token = authStorage.getToken();
 
-    // optimistic message
-    const tempId = Date.now();
-    const optimistic: Message = {
-      messageId: tempId,
-      senderId: -1, // self
-      receiverId: activeUser,
-      messageText: textToSend,
-      fileUrl: null,
-      fileType: null,
-      isRead: true,
-      sentAt: new Date().toISOString(),
-    };
-    setMessages((m) => [...m, optimistic]);
-    setText("");
-    setSending(true);
+        // Don’t start without jQuery SignalR, hub, or token
+        if (!$ || !$.connection || !$.connection.hub || !token) return;
+        if (startedRef.current) return;
 
-    try {
-      await api.post("/api/message/send", null, {
-        params: { receiverId: activeUser, messageText: textToSend },
-      });
-      await loadMessages(activeUser);
-      await loadConversations();
-    } catch {
-      setMessages((m) => m.filter((x) => x.messageId !== tempId));
-      alert("Failed to send message");
-    } finally {
-      setSending(false);
-    }
-  }
+        $.connection.hub.url = `${API_BASE}/signalr`;
+        $.connection.hub.qs = { access_token: token };
+        $.connection.hub.logging = false; // keep console clean
 
-  // mark read / unread / delete
-  async function markRead() {
-    if (!activeUser) return;
-    try {
-      await api.post(`/api/message/read-all/${activeUser}`);
-      await loadConversations();
-      await loadMessages(activeUser);
-    } catch {}
-  }
-  async function markUnread() {
-    if (!activeUser) return;
-    try {
-      await api.post(`/api/message/unread-all/${activeUser}`);
-      await loadConversations();
-      await loadMessages(activeUser);
-    } catch {}
-  }
-  async function deleteConversation() {
-    if (!activeUser) return;
-    if (!confirm("Delete this conversation for you?")) return;
-    try {
-      await api.delete(`/api/message/delete-all/${activeUser}`);
-      setMessages([]);
-      await loadConversations();
-      const stillThere = conversations.some((c) => c.userId === activeUser);
-      if (!stillThere) setActiveUser(null);
-    } catch {}
-  }
+        const hub = $.connection.chatHub;
+        hub.client = hub.client || {};
 
-  // SignalR live
-  useEffect(() => {
-    // @ts-ignore
-    const $: any = (window as any).$;
-    if (!$ || !$.connection || !$.connection.chatHub) return;
+        const onIncoming = async (raw: any) => {
+            const msg = normalizeMsg(raw);
+            if (
+                activeUser &&
+                (msg.senderId === activeUser.userId || msg.receiverId === activeUser.userId)
+            ) {
+                await loadMessages(activeUser.userId);
+                setConversations(prev =>
+                    prev.map(c => (c.userId === activeUser.userId ? { ...c, unread: 0 } : c))
+                );
+            } else {
+                await loadConversations();
+            }
+        };
 
-    const hub = $.connection.chatHub;
-    hub.client = hub.client || {};
+        hub.client.newMessage = onIncoming;
+        hub.client.receiveMessage = onIncoming;
 
-    hub.client.receiveMessage = (msg: any) => {
-      loadConversations();
-      if (
-        activeUser &&
-        (msg.SenderId === activeUser || msg.ReceiverId === activeUser)
-      ) {
-        loadMessages(activeUser);
-      }
-    };
-    hub.client.updateUnread = () => loadConversations();
-    hub.client.read = () => loadConversations();
-    hub.client.UserTyping = (username: string, isTyping: boolean) => {
-      setTypingUser(isTyping ? username : null);
-    };
+        startedRef.current = true;
+        $.connection.hub
+            .start({ transport: ["serverSentEvents", "longPolling"] })
+            .done(() => console.log("SignalR connected"))
+            // Don’t log the negotiation failure; let the hub.error filter below handle real errors
+            .fail(() => {
+                // if it truly failed to start, allow another attempt later
+                startedRef.current = false;
+            });
 
-    return () => {
-      if (!hub.client) return;
-      hub.client.receiveMessage = null;
-      hub.client.updateUnread = null;
-      hub.client.read = null;
-      hub.client.UserTyping = null;
-    };
-  }, [activeUser, loadMessages, loadConversations]);
+        // Ignore the common “Error during negotiation request” noise
+        $.connection.hub.error((err: any) => {
+            const msg = String(err?.message || err || "");
+            if (/during negotiation/i.test(msg)) return;
+            if ($.connection.hub.state !== 1) console.error("SignalR error:", err);
+        });
 
-  // typing indicator
-  function notifyTyping() {
-    // @ts-ignore
-    const $: any = (window as any).$;
-    if (!activeUser || !($ && $.connection && $.connection.chatHub)) return;
-    try {
-      $.connection.chatHub.server.startTyping(activeUser);
-      if (typingTimer.current) clearTimeout(typingTimer.current);
-      typingTimer.current = setTimeout(() => {
-        try {
-          $.connection.chatHub.server.stopTyping(activeUser);
-        } catch {}
-      }, 1500);
-    } catch {}
-  }
+        return () => {
+            try {
+                if ($.connection.hub && $.connection.hub.state === 1) $.connection.hub.stop();
+            } finally {
+                startedRef.current = false;
+            }
+        };
+    }, [activeUser, loadConversations, loadMessages]);
 
-  const activeMeta =
-    listToShow.find((c) => c.userId === activeUser) ||
-    conversations.find((c) => c.userId === activeUser) ||
-    null;
+    // initial conversations
+    useEffect(() => {
+        loadConversations();
+    }, []);
 
-  // auto scroll
-  useEffect(() => {
-    const el = messagesBoxRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-    lastMessageRef.current?.scrollIntoView({ block: "end" });
-  }, [messages]);
+    // auto scroll to bottom when messages change
+    useEffect(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, [messages.length]);
 
-  // enter to send
-  function onComposerKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (!sending && text.trim()) {
-        // trigger form submit
-        (e.currentTarget.form as HTMLFormElement)?.requestSubmit();
-      }
-    }
-  }
-
-  return (
-    <div className="mx-auto w-full max-w-7xl h-[80vh] min-h-0 border rounded-lg bg-white shadow-sm overflow-hidden">
-      {/* Responsive grid: list becomes overlay on small screens */}
-      <div className="grid grid-cols-1 md:grid-cols-3 h-full">
-        {/* LEFT: Conversation list */}
-        <aside
-          className={`relative bg-gray-50 border-r md:static md:translate-x-0 transition-transform duration-200 min-h-0 ${
-            showList ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-          }`}
-        >
-          {/* mobile close bar */}
-          <div className="md:hidden flex items-center justify-between px-3 py-2 border-b bg-white">
-            <h2 className="font-semibold">Conversations</h2>
-            <button
-              className="text-sm px-2 py-1 border rounded"
-              onClick={() => setShowList(false)}
-            >
-              Close
-            </button>
-          </div>
-
-          <div className="hidden md:block border-b px-3 py-2">
-            <h2 className="font-semibold">Conversations</h2>
-          </div>
-
-          {/* search */}
-          <div className="p-3 border-b bg-gray-50">
-            <input
-              value={q}
-              onChange={(e) => handleSearch(e.target.value)}
-              placeholder={
-                userRole === "Recruiter"
-                  ? "Search job seekers by name…"
-                  : "Search by name or company…"
-              }
-              className="w-full border rounded px-3 py-2 text-sm"
-            />
-          </div>
-
-          {/* list */}
-          <ul className="divide-y overflow-y-auto h-[calc(100%-112px)] md:h-[calc(100%-96px)]">
-            {listToShow.length === 0 ? (
-              <li className="p-4 text-sm text-gray-500">No conversations yet.</li>
-            ) : (
-              listToShow.map((c) => (
-                <li
-                  key={c.userId}
-                  onClick={() => {
-                    setActiveUser(c.userId);
-                    setShowList(false);
-                  }}
-                  className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-100 ${
-                    activeUser === c.userId ? "bg-gray-200" : ""
-                  }`}
-                >
-                  <img
-                    src={resolveAvatar(c)}
-                    alt="avatar"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
-                    }}
-                    className="w-10 h-10 rounded-full border object-cover"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">
-                      {c.role === "Recruiter"
-                        ? c.companyName || `Recruiter ${c.userId}`
-                        : c.fullName || `User ${c.userId}`}
-                    </div>
-                    <div className="text-xs text-gray-600 truncate">
-                      {c.lastMessage || ""}
-                    </div>
-                    <div className="text-[11px] text-gray-400">
-                      {fmtIST(c.lastTimestamp)}
-                    </div>
-                  </div>
-                  {c.unread > 0 && (
-                    <span className="ml-auto text-xs bg-blue-600 text-white px-2 rounded-full">
-                      {c.unread > 99 ? "99+" : c.unread}
-                    </span>
-                  )}
-                </li>
-              ))
-            )}
-          </ul>
-        </aside>
-
-        {/* RIGHT: Chat */}
-        <section className="col-span-2 flex flex-col min-h-0">
-          {activeUser ? (
-            <>
-              {/* sticky chat header */}
-              <div className="sticky top-0 z-10 border-b px-3 py-2 bg-white flex items-center justify-between">
-                <div className="flex items-center gap-3 min-w-0">
-                  {/* mobile open list */}
-                  <button
-                    className="md:hidden px-2 py-1 border rounded"
-                    onClick={() => setShowList(true)}
-                  >
-                    Menu
-                  </button>
-
-                  <img
-                    src={resolveAvatar(activeMeta)}
-                    alt="avatar"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
-                    }}
-                    className="w-9 h-9 rounded-full border object-cover"
-                  />
-                  <div className="min-w-0">
-                    <div className="font-semibold truncate">
-                      {activeMeta?.role === "Recruiter"
-                        ? activeMeta?.companyName || `Recruiter ${activeUser}`
-                        : activeMeta?.fullName || `User ${activeUser}`}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {typingUser ? `${typingUser} is typing…` : "Chat"}
-                    </div>
-                  </div>
+    return (
+        <div className="flex h-[calc(100vh-3.5rem)]">
+            {/* Left: conversations + search */}
+            <div className="w-1/3 border-r flex flex-col">
+                <div className="p-3 border-b">
+                    <input
+                        type="text"
+                        placeholder="Search users or companies…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-full border rounded px-2 py-1"
+                    />
                 </div>
 
-                <div className="hidden sm:flex items-center gap-2">
-                  <button
-                    onClick={markRead}
-                    className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
-                  >
-                    Mark read
-                  </button>
-                  <button
-                    onClick={markUnread}
-                    className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
-                  >
-                    Mark unread
-                  </button>
-                  <button
-                    onClick={deleteConversation}
-                    className="px-3 py-1 text-sm border rounded text-red-600 border-red-300 hover:bg-red-50"
-                  >
-                    Delete
-                  </button>
+                <div className="flex-1 overflow-y-auto">
+                    {searchResults.length > 0
+                        ? searchResults.map((u) => {
+                            const recruiter = isRecruiterItem(u);
+                            const uid = u.userId ?? u.UserId ?? null;
+                            const companyName =
+                                u.companyName ?? u.CompanyName ?? u.name ?? u.Name ?? "";
+                            const fullName = u.fullName ?? u.FullName ?? "";
+                            const title = recruiter ? companyName || "Company" : fullName || "User";
+                            const logo = recruiter ? toAbs(u.logoUrl ?? u.LogoUrl) : "/default-avatar.jpg";
+                            const key = `${recruiter ? "recruiter" : "seeker"}-${uid ?? Math.random()}`;
+
+                            return (
+                                <div
+                                    key={key}
+                                    onClick={() => {
+                                        if (!uid) return;
+                                        setActiveUser({
+                                            userId: uid,
+                                            fullName: recruiter ? undefined : fullName,
+                                            companyName: recruiter ? companyName : undefined,
+                                            logoUrl: logo,
+                                            unread: 0,
+                                            lastMessage: "",
+                                        });
+                                        setSearch("");
+                                        setSearchResults([]);
+                                        loadMessages(uid);
+                                    }}
+                                    className="p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50"
+                                >
+                                    <img
+                                        src={logo}
+                                        onError={(e) => {
+                                            (e.currentTarget as HTMLImageElement).src = "/default-avatar.jpg";
+                                        }}
+                                        alt=""
+                                        className="w-10 h-10 rounded-full"
+                                    />
+                                    <div className="flex flex-col">
+                                        <span className="font-medium">{title}</span>
+                                        <span className="text-xs text-gray-500">
+                                            {recruiter ? "Recruiter" : "Job Seeker"}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })
+                        : conversations.map((c) => {
+                            const recruiter = !!c.companyName && c.companyName.trim().length > 0;
+                            const title = recruiter ? c.companyName! : c.fullName || "User";
+                            const logo = recruiter ? toAbs(c.logoUrl) : "/default-avatar.jpg";
+
+                            return (
+                                <div
+                                    key={c.userId}
+                                    onClick={() => {
+                                        setActiveUser(c);
+                                        // optimistic clear for this peer
+                                        setConversations((prev) =>
+                                            prev.map((x) => (x.userId === c.userId ? { ...x, unread: 0 } : x))
+                                        );
+                                        loadMessages(c.userId);
+                                    }}
+                                    className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 ${activeUser?.userId === c.userId ? "bg-gray-100" : ""
+                                        }`}
+                                >
+                                    <img
+                                        src={logo}
+                                        onError={(e) => {
+                                            (e.currentTarget as HTMLImageElement).src = "/default-avatar.jpg";
+                                        }}
+                                        alt=""
+                                        className="w-10 h-10 rounded-full"
+                                    />
+                                    <div className="flex-1">
+                                        <div className="font-medium">{title}</div>
+                                        {!recruiter && c.lastMessage && (
+                                            <div className="text-sm text-gray-500 truncate">{c.lastMessage}</div>
+                                        )}
+                                    </div>
+                                    {c.unread > 0 && (
+                                        <span className="text-xs bg-red-500 text-white rounded-full px-2">
+                                            {c.unread}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
                 </div>
-              </div>
-
-              {/* messages */}
-              <div
-                ref={messagesBoxRef}
-                className="flex-1 overflow-y-auto px-3 py-4 space-y-3 bg-[rgb(248,249,251)]"
-              >
-                {messages.map((m, i) => {
-                  const isLast = i === messages.length - 1;
-                  const mine = m.senderId !== activeUser; // self on right
-                  const timeIST = fmtIST(m.sentAt);
-
-                  return (
-                    <div
-                      key={m.messageId || i}
-                      ref={isLast ? lastMessageRef : undefined}
-                      className={`flex ${mine ? "justify-end" : "justify-start"}`}
-                    >
-                      <div
-                        className={`rounded-2xl px-3 py-2 text-sm shadow-sm max-w-[82%] sm:max-w-[75%] md:max-w-[70%] break-words ${
-                          mine
-                            ? "bg-blue-600 text-white text-right"
-                            : "bg-gray-200 text-gray-900 text-left"
-                        }`}
-                      >
-                        {m.messageText && <div>{m.messageText}</div>}
-
-                        {m.fileUrl && (
-                          <div className="mt-1">
-                            <a
-                              href={m.fileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className={`underline text-xs ${
-                                mine ? "text-white/90" : "text-blue-700"
-                              }`}
-                            >
-                              {m.fileType || "File"}
-                            </a>
-                          </div>
-                        )}
-
-                        <div
-                          className={`text-[10px] mt-1 ${
-                            mine ? "opacity-80" : "text-gray-600"
-                          }`}
-                        >
-                          {timeIST}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* composer (sticky bottom) */}
-              <form
-                onSubmit={handleSend}
-                className="sticky bottom-0 z-10 border-t bg-white px-3 py-2 flex gap-2 items-end"
-              >
-                <input
-                  value={text}
-                  onChange={(e) => {
-                    setText(e.target.value);
-                    notifyTyping();
-                  }}
-                  onKeyDown={onComposerKeyDown}
-                  className="flex-1 border rounded px-3 py-2 text-sm"
-                  placeholder="Type a message…"
-                />
-                <button
-                  type="submit"
-                  disabled={sending || !text.trim()}
-                  className={`px-4 h-10 rounded text-white text-sm ${
-                    sending || !text.trim()
-                      ? "bg-blue-400"
-                      : "bg-blue-600 hover:bg-blue-700"
-                  }`}
-                  aria-disabled={sending || !text.trim()}
-                >
-                  {sending ? "Sending…" : "Send"}
-                </button>
-              </form>
-            </>
-          ) : (
-            <div className="flex items-center justify-center flex-1 text-gray-500 p-6">
-              <div className="text-center space-y-3">
-                <button
-                  className="md:hidden px-3 py-2 border rounded"
-                  onClick={() => setShowList(true)}
-                >
-                  Open conversations
-                </button>
-                <div className="hidden md:block">Select a conversation to start chatting</div>
-              </div>
             </div>
-          )}
-        </section>
-      </div>
-    </div>
-  );
+
+            {/* Right: chat */}
+            <div className="flex-1 flex flex-col">
+                {activeUser ? (
+                    <>
+                        {/* Header */}
+                        <div className="p-3 border-b flex items-center gap-3">
+                            {(() => {
+                                const recruiter = !!activeUser?.companyName;
+                                const logo = recruiter ? toAbs(activeUser?.logoUrl) : "/default-avatar.jpg";
+                                const title = recruiter
+                                    ? activeUser?.companyName
+                                    : activeUser?.fullName || "Conversation";
+                                return (
+                                    <>
+                                        <img
+                                            src={logo}
+                                            onError={(e) => {
+                                                (e.currentTarget as HTMLImageElement).src = "/default-avatar.jpg";
+                                            }}
+                                            alt=""
+                                            className="w-8 h-8 rounded-full"
+                                        />
+                                        <div>
+                                            <div className="font-semibold">{title}</div>
+                                            {!recruiter && activeUser?.companyName && (
+                                                <div className="text-xs text-gray-500">{activeUser.companyName}</div>
+                                            )}
+                                        </div>
+                                    </>
+                                );
+                            })()}
+                        </div>
+
+                        {/* Messages (WhatsApp-like bubbles) */}
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50">
+                            {messages.map((m) => {
+                                const mine = isMine(m.senderId);
+                                return (
+                                    <div
+                                        key={m.id}
+                                        className={`w-full flex ${mine ? "justify-end" : "justify-start"} mb-1`}
+                                    >
+                                        <div
+                                            className={[
+                                                "max-w-[75%] px-3 py-2 shadow",
+                                                "rounded-2xl",
+                                                mine
+                                                    ? "bg-green-200 text-black rounded-br-md ml-8" // my bubble: green, right, slight notch
+                                                    : "bg-gray-100 text-black rounded-bl-md mr-8 border border-gray-200", // their bubble: left, gray
+                                            ].join(" ")}
+                                        >
+                                            {m.text && (
+                                                <div className="whitespace-pre-wrap break-words leading-snug">{m.text}</div>
+                                            )}
+                                            {m.fileUrl && (
+                                                <a
+                                                    href={`${API_BASE}${m.fileUrl}`}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="underline text-sm block mt-0.5"
+                                                >
+                                                    📎 File
+                                                </a>
+                                            )}
+                                            <div className="text-[11px] mt-1 text-right text-gray-600">
+                                                {fmtDateIST(m.sentAtUtc)} {fmtTimeIST(m.sentAtUtc)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            <div ref={bottomRef} />
+                        </div>
+
+                        {/* Composer */}
+                        <div className="p-3 border-t flex gap-2">
+                            <input
+                                type="text"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" && !e.shiftKey) {
+                                        e.preventDefault();
+                                        sendMessage();
+                                    }
+                                }}
+                                placeholder="Type a message…"
+                                className="flex-1 border rounded px-2"
+                            />
+                            <input ref={fileInputRef} type="file" className="hidden" />
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="px-3 border rounded"
+                            >
+                                📎
+                            </button>
+                            <button onClick={sendMessage} className="px-3 bg-blue-500 text-white rounded">
+                                Send
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex-1 flex items-center justify-center text-gray-500">
+                        Select a conversation to start chatting
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }

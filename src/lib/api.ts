@@ -25,7 +25,20 @@ function emitAuthChanged() {
   }
 }
 /* -------------------------------------------------------- */
+export async function fetchConversations() {
+  const token = authStorage.getToken();
+  if (!token) return [];
 
+  try {
+const res = await fetch(`${API_BASE_URL}/api/chat/conversations`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
 // --- Axios module augmentation so we can pass suppressUnauthorized ---
 declare module "axios" {
   interface AxiosRequestConfig {
@@ -58,8 +71,28 @@ export const authStorage = {
   },
   clear() {
     this.setToken(null);
+    try {
+      localStorage.removeItem("jobsetu_user");
+    } catch {}
+    emitAuthChanged();
+  },
+  /** ✅ Returns parsed user object stored in localStorage */
+  getUser(): { userId: number; fullName?: string; role?: string } | null {
+    try {
+      const raw = localStorage.getItem("jobsetu_user");
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  },
+  /** ✅ Returns userId (or null if not logged in) */
+  getUserId(): number | null {
+    const u = this.getUser();
+    return u?.userId ?? null;
   },
 };
+
 /* -------------------------------------------------------- */
 
 // --- read role from the JWT (if present) ---
