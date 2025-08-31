@@ -1,12 +1,12 @@
-// src/components/Navbar.tsx
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect, useCallback, useRef } from "react";
 import AuthModal from "./AuthModal";
 import { authStorage, onAuthChanged, fetchConversations } from "../lib/api";
 import { onOpenAuth } from "../lib/authGate";
 import useSignalRStatus from "../hooks/useSignalRStatus";
+import { ensureHubStarted, on as onHubEvent } from "../lib/signalr";
+import { HubConnectionState } from "@microsoft/signalr";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 type SavedUser = { userId: number; fullName?: string; role?: string } | null;
 
 function makeInitials(name?: string) {
@@ -28,7 +28,7 @@ function pickPayload(args: any[]): any | null {
       try {
         const o = JSON.parse(a);
         if ("senderId" in o || "SenderId" in o || "messageId" in o || "Id" in o) return o;
-      } catch { }
+      } catch {}
     }
   }
   return null;
@@ -46,20 +46,27 @@ export default function Navbar() {
   const nav = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // live SignalR status
-  const srStatus = useSignalRStatus();
+  // status from our shared SignalR hook
+  const { status } = useSignalRStatus();
+  const statusText =
+    status === HubConnectionState.Connected
+      ? "connected"
+      : status === HubConnectionState.Connecting
+      ? "connecting"
+      : status === HubConnectionState.Reconnecting
+      ? "reconnecting"
+      : status === HubConnectionState.Disconnected
+      ? "disconnected"
+      : "unknown";
   const srDot =
     {
       connected: "bg-green-500",
       connecting: "bg-yellow-500",
       reconnecting: "bg-orange-500",
       disconnected: "bg-red-500",
-      error: "bg-red-600",
-      "not loaded": "bg-gray-400",
       unknown: "bg-gray-400",
-    }[srStatus] || "bg-gray-400";
+    }[statusText] || "bg-gray-400";
 
-  // keep user synced with storage + auth events
   useEffect(() => {
     const storageHandler = (e: StorageEvent) => {
       if (!e.key || e.storageArea !== localStorage) return;
@@ -98,141 +105,83 @@ export default function Navbar() {
     setOpen(false);
     setUser(authStorage.getUser());
   }, []);
-  function handleLogout() {
-    const $: any = (window as any).$ || (window as any).jQuery;
-    try { $.connection?.hub?.stop(true, true); } catch { }
-    authStorage.clear();
-    setUser(null);
-    setMenuOpen(false);
-    setUnreadCount(0);
-    window.location.assign("/");
-  }
 
-  // Unread badge + SignalR hub wiring (centralized here)
-  // Unread badge + SignalR hub wiring (centralized here)
+  // ---- unread counter + incoming message handling via shared hub ----
   useEffect(() => {
-    const $: any = (window as any).$ || (window as any).jQuery;
-    if (!$?.connection) return;
-
     const me = authStorage.getUser()?.userId || 0;
     const seenIds = new Set<number>();
 
     async function loadUnread() {
       const u = authStorage.getUser();
-      if (!u) { setUnreadCount(0); return; }
-      const convos = await fetchConversations();
-      const total = Array.isArray(convos)
-        ? convos.reduce((s: number, c: any) => s + (c.unread || 0), 0)
-        : 0;
-      setUnreadCount(total);
+      if (!u) {
+        setUnreadCount(0);
+        return;
+      }
+      try {
+        const convos = await fetchConversations();
+        const total = Array.isArray(convos)
+          ? convos.reduce((s: number, c: any) => s + (c.unread || 0), 0)
+          : 0;
+        setUnreadCount(total);
+      } catch {
+        setUnreadCount(0);
+      }
     }
 
     const reconcile = () => {
       loadUnread();
-      // light backoff to avoid DB race after server pushes
       setTimeout(loadUnread, 300);
       setTimeout(loadUnread, 1200);
     };
 
     function processIncoming(raw: any) {
-      const p = pickPayload([raw]);
-      if (!p) { reconcile(); return; }
-
-      // de-dupe across newMessage + receiveMessage
-      const id = p.messageId ?? p.id ?? p.Id;
+      const p = pickPayload([raw]) ?? raw;
+      const id = p?.messageId ?? p?.id ?? p?.Id;
       if (id != null) {
         if (seenIds.has(id)) return;
         seenIds.add(id);
       }
-
-      // optimistic badge bump if the message is to me
-      if (p.receiverId === me) setUnreadCount(n => n + 1);
-
-      // let Messages page refresh its thread/list
+      if (p?.receiverId === me) setUnreadCount((n) => n + 1);
       window.dispatchEvent(new CustomEvent("chat:incoming", { detail: p }));
-
       reconcile();
     }
 
-    async function init() {
-      const token = authStorage.getToken();
-      if (!token) {
-        try { if ($.connection.hub && $.connection.hub.state !== 4) $.connection.hub.stop(); } catch { }
-        return;
-      }
+    // subscribe to hub events (auto rebind handled inside lib)
+    const offMsg = onHubEvent("receiveMessage", processIncoming);
+    const offRead = onHubEvent("markRead", () => reconcile());
 
-      // hub URL + token BEFORE start
-      $.connection.hub.url = `${API_BASE}/signalr`;
-      $.connection.hub.qs = { access_token: token };
-      $.connection.hub.logging = true; // console diagnostics
+    // ensure a connection exists (if logged in)
+    ensureHubStarted();
 
-      const hub = $.connection.chatHub;
-      hub.client = hub.client || {};
+    // refresh / (re)start on auth changes
+    const offAuth = onAuthChanged(() => {
+      ensureHubStarted();
+      loadUnread();
+    });
 
-      // bind handlers only once per page
-      const w = window as any;
-      if (!w.__chatHubHandlersBound) {
-        w.__chatHubHandlersBound = true;
-
-        const prevNew = hub.client.newMessage;
-        const prevRecv = hub.client.receiveMessage;
-        const prevRead = hub.client.markRead;
-
-        hub.client.newMessage = (...args: any[]) => {
-          try { prevNew?.(...args); } catch { }
-          processIncoming(pickPayload(args));
-        };
-        hub.client.receiveMessage = (...args: any[]) => {
-          try { prevRecv?.(...args); } catch { }
-          processIncoming(pickPayload(args));
-        };
-        hub.client.markRead = (...args: any[]) => {
-          try { prevRead?.(...args); } catch { }
-          reconcile();
-        };
-
-        // resilient reconnect with fresh token
-        $.connection.hub.disconnected(async () => {
-          const delay = 2000 + Math.floor(Math.random() * 1000);
-          setTimeout(async () => {
-            try {
-              const fresh = authStorage.getToken();
-              if (!fresh) return;
-              $.connection.hub.url = `${API_BASE}/signalr`;
-              $.connection.hub.qs = { access_token: fresh };
-              if ($.connection.hub.state === 4) {
-                await $.connection.hub.start({ transport: ["webSockets", "serverSentEvents", "longPolling"] });
-              }
-            } catch (e) {
-              console.warn("SignalR re-start failed", e);
-            }
-          }, delay);
-        });
-      }
-
-      try {
-        if ($.connection.hub.state !== 1) {
-          await $.connection.hub.start({ transport: ["webSockets", "serverSentEvents", "longPolling"] });
-        }
-      } catch (e) {
-        console.warn("SignalR start failed", e);
-      }
-    }
-
-    init();
-
-    // initial + periodic + external pings
+    // initial unread + periodic refresh
     loadUnread();
     const onPing = () => loadUnread();
     window.addEventListener("chat:unread-changed", onPing);
     const timer = setInterval(loadUnread, 30000);
 
     return () => {
+      offMsg();
+      offRead();
+      offAuth();
       clearInterval(timer);
       window.removeEventListener("chat:unread-changed", onPing);
     };
   }, [user]);
 
+  function handleLogout() {
+    // keep homepage redirect exactly as-is
+    authStorage.clear();
+    setUser(null);
+    setMenuOpen(false);
+    setUnreadCount(0);
+    window.location.assign("/");
+  }
 
   const initials = makeInitials(user?.fullName);
 
@@ -258,11 +207,11 @@ export default function Navbar() {
             {/* SignalR status pill */}
             <div
               className="hidden sm:flex items-center gap-2 text-xs text-gray-600"
-              title={`SignalR: ${srStatus}`}
+              title={`SignalR: ${statusText}`}
               aria-label="SignalR status"
             >
               <span className={`inline-block w-2 h-2 rounded-full ${srDot}`} />
-              <span>{srStatus}</span>
+              <span>{statusText}</span>
             </div>
 
             {/* Messages icon (only if logged in) */}

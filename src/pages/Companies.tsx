@@ -1,3 +1,4 @@
+//src/pages/Companies.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../lib/api";
 import CompanyCard, { CompanyCardSkeleton } from "../components/CompanyCard";

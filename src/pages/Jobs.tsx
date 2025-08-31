@@ -1,3 +1,4 @@
+//src/pages/Jobs.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api, { onAuthChanged, authStorage } from "../lib/api";

@@ -1,6 +1,7 @@
 // src/components/AuthModal.tsx
 import { useEffect, useState } from "react";
 import api, { authStorage, normalizeApiError } from "../lib/api";
+import { useNavigate } from "react-router-dom";
 
 type Props = {
   open: boolean;
@@ -25,6 +26,8 @@ export default function AuthModal({ open, onClose, startTab = "login" }: Props) 
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const navigate = useNavigate();
 
   // register fields
   const [phone, setPhone] = useState("");
@@ -53,22 +56,52 @@ export default function AuthModal({ open, onClose, startTab = "login" }: Props) 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
-    setErr(null); setLoading(true);
+    setErr(null);
+    setLoading(true);
+
     try {
       const body = { email: email.trim().toLowerCase(), password: password.trim() };
       const { data } = await api.post("/api/auth/login", body);
-      // accept both camelCase or PascalCase responses
+
+      // token
       const token = data?.token || data?.Token || data?.accessToken;
       if (token) authStorage.setToken(token);
-      // persist metadata if present (optional)
-      if (data?.fullName || data?.role) {
-        localStorage.setItem("jobsetu_user", JSON.stringify({ fullName: data.fullName, role: data.role }));
+
+      // save basic user for navbar etc.
+      const u = {
+        userId: data?.userId ?? data?.user?.userId,
+        fullName: data?.fullName ?? data?.user?.fullName,
+        role: data?.role ?? data?.user?.role,
+      };
+      localStorage.setItem("jobsetu_user", JSON.stringify(u));
+
+      // route by role + profile existence
+      if (u?.role === "Recruiter") {
+        try {
+          const r = await api.get("/api/recruiter/profile/exists", { suppressUnauthorized: true });
+          const exists = !!r?.data?.exists;
+          onClose();
+          navigate(exists ? "/recruiter/profile" : "/onboarding/recruiter", { replace: true });
+          return;
+        } catch { /* ignore and fall back */ }
+      } else {
+        try {
+          const r = await api.get("/api/user/profile/exists", { suppressUnauthorized: true });
+          const exists = !!r?.data?.exists;
+          onClose();
+          navigate(exists ? "/profile" : "/onboarding/seeker", { replace: true });
+          return;
+        } catch { /* ignore and fall back */ }
       }
+
+      // fallback
       onClose();
       window.location.reload();
     } catch (e) {
       setErr(normalizeApiError(e).message || "Login failed");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleRegister(e: React.FormEvent) {
@@ -82,7 +115,7 @@ export default function AuthModal({ open, onClose, startTab = "login" }: Props) 
         Phone: phone.trim(),
         Password: password.trim(),
         Role: role,                 // "JobSeeker" | "Recruiter"
-        IsGdprAccepted: gdpr        // ✅ keep this
+        IsGdprAccepted: gdpr
       });
       setView({ tab: "register", step: 2 }); // go to OTP input
     } catch (e) {
@@ -95,8 +128,10 @@ export default function AuthModal({ open, onClose, startTab = "login" }: Props) 
     if (loading) return;
     setErr(null); setLoading(true);
     try {
-      await api.post("/api/auth/verify-otp", { email: email.trim().toLowerCase(), otp: otp.trim() });
-      onClose();
+      // PascalCase keys to match server DTOs cleanly (binder is case-insensitive, but this is clearer)
+      await api.post("/api/auth/verify-otp", { Email: email.trim().toLowerCase(), OTP: otp.trim() });
+      // move to login tab after successful verification
+      setView({ tab: "login" });
     } catch (e) {
       setErr(normalizeApiError(e).message || "OTP verification failed");
     } finally { setLoading(false); }
@@ -119,7 +154,7 @@ export default function AuthModal({ open, onClose, startTab = "login" }: Props) 
     if (loading) return;
     setErr(null); setLoading(true);
     try {
-      await api.post("/api/auth/verify-forgot-password-otp", { email: email.trim().toLowerCase(), otp: otp.trim() });
+      await api.post("/api/auth/verify-forgot-password-otp", { Email: email.trim().toLowerCase(), OTP: otp.trim() });
       setView({ tab: "forgot", step: 3 });
     } catch (e) {
       setErr(normalizeApiError(e).message || "Invalid OTP");
@@ -178,15 +213,15 @@ export default function AuthModal({ open, onClose, startTab = "login" }: Props) 
         <div className="inline-flex rounded-xl border border-gray-200 p-1 mb-4">
           <button
             className={`px-3 h-9 rounded-lg text-sm ${view.tab === "login" ? "bg-gray-100 font-medium" : "text-gray-700"}`}
-            onClick={() => !loading && setView({ tab: "login" })}
+            onClick={() => { if (!loading) { setErr(null); setView({ tab: "login" }); } }}
           >Login</button>
           <button
             className={`px-3 h-9 rounded-lg text-sm ${view.tab === "register" ? "bg-gray-100 font-medium" : "text-gray-700"}`}
-            onClick={() => !loading && setView({ tab: "register", step: 1 })}
+            onClick={() => { if (!loading) { setErr(null); setView({ tab: "register", step: 1 }); } }}
           >Register</button>
           <button
             className={`px-3 h-9 rounded-lg text-sm ${view.tab === "forgot" ? "bg-gray-100 font-medium" : "text-gray-700"}`}
-            onClick={() => !loading && setView({ tab: "forgot", step: 1 })}
+            onClick={() => { if (!loading) { setErr(null); setView({ tab: "forgot", step: 1 }); } }}
           >Forgot</button>
         </div>
 
@@ -205,7 +240,6 @@ export default function AuthModal({ open, onClose, startTab = "login" }: Props) 
             </button>
           </form>
         )}
-
 
         {is.reg1 && (
           <form onSubmit={handleRegister} className="space-y-3">

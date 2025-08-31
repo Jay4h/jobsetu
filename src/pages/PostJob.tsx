@@ -31,13 +31,21 @@ type FormState = {
 // ---- helper: normalize API errors from wrapper or raw axios ----
 function extractApiError(err: any) {
   const status = err?.status ?? err?.response?.status;
-  const data   = err?.data   ?? err?.response?.data;
-  const code   = typeof data === "object" ? data?.code : undefined;
+  const data = err?.data ?? err?.response?.data;
+  const code = typeof data === "object" ? data?.code : undefined;
   const message =
     (typeof data === "object" && (data?.message || data?.Message)) ||
     err?.message ||
     "Request failed";
   return { status, code, message, data };
+}
+
+// util to format a JS Date as IST YYYY-MM-DD (for <input type="date"> & API)
+function toISTDateString(date: Date) {
+  const istOffsetMin = 5.5 * 60; // minutes
+  const utcMs = date.getTime() + date.getTimezoneOffset() * 60000;
+  const ist = new Date(utcMs + istOffsetMin * 60000);
+  return ist.toLocaleDateString("en-CA"); // YYYY-MM-DD
 }
 
 export default function PostJob() {
@@ -67,18 +75,20 @@ export default function PostJob() {
   const [submitting, setSubmitting] = useState(false);
   const errRef = useRef<HTMLDivElement | null>(null);
 
-  // NEW: auto-reject toggles (kept separate to avoid touching your FormState)
+  // auto-reject toggles (kept separate to avoid touching your FormState)
   const [autoRejectExperience, setAutoRejectExperience] = useState<boolean>(true);
   const [autoRejectLocation, setAutoRejectLocation] = useState<boolean>(false);
 
-  // NEW: bulk upload modal state
+  // bulk upload modal state
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [bulkUploading, setBulkUploading] = useState(false);
 
   const nav = useNavigate();
 
-  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  // today's date computed in IST
+  const todayIso = useMemo(() => toISTDateString(new Date()), []);
+
   const lpaHint = useMemo(() => {
     const sMin = Number(f.salaryMin || 0);
     const sMax = Number(f.salaryMax || 0);
@@ -88,16 +98,17 @@ export default function PostJob() {
 
   const up =
     (k: keyof FormState) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const val =
-        e.currentTarget.type === "checkbox"
-          ? (e.currentTarget as HTMLInputElement).checked
-          : e.currentTarget.value;
-      setF((s) => ({ ...s, [k]: val as any }));
-      // clear banner when editing key fields
-      if (["title", "location", "experience", "salaryMin", "salaryMax", "description"].includes(k))
-        setFormError("");
-    };
+      (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const val =
+          e.currentTarget.type === "checkbox"
+            ? (e.currentTarget as HTMLInputElement).checked
+            : e.currentTarget.value;
+        setF((s) => ({ ...s, [k]: val as any }));
+        if (
+          ["title", "location", "experience", "salaryMin", "salaryMax", "description"].includes(k)
+        )
+          setFormError("");
+      };
 
   function addChip(v: string, list: string[], setList: (x: string[]) => void) {
     const t = v.trim();
@@ -133,9 +144,10 @@ export default function PostJob() {
     fd.append("salaryMin", f.salaryMin || "");
     fd.append("salaryMax", f.salaryMax || "");
     fd.append("experience", f.experience || "");
+    // ensure the default/fallback expiry is IST date (+30d)
     fd.append(
       "expiryDate",
-      f.expiryDate || new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10)
+      f.expiryDate || toISTDateString(new Date(Date.now() + 30 * 864e5))
     );
     fd.append("isRemote", f.isRemote ? "true" : "false");
     fd.append("isUrgent", f.isUrgent ? "true" : "false");
@@ -151,38 +163,61 @@ export default function PostJob() {
     fd.append("tags", tags.join(","));
     fd.append("skills", skills.join(","));
 
-    // NEW: send auto-reject flags (backend will ignore if not used)
+    // send auto-reject flags (backend will persist in metadata)
     fd.append("autoRejectExperience", autoRejectExperience ? "true" : "false");
     fd.append("autoRejectLocation", autoRejectLocation ? "true" : "false");
 
     try {
       setSubmitting(true);
-      await api.post("/api/recruiter/post-job", fd, {
+      const res = await api.post("/api/recruiter/post-job", fd, {
         headers: { Accept: "application/json" },
-        transformRequest: [(data, headers) => {
-          delete (headers as any)["Content-Type"]; // let browser set multipart boundary
-          return data;
-        }],
+        transformRequest: [
+          (data, headers) => {
+            delete (headers as any)["Content-Type"]; // let browser set multipart boundary
+            return data;
+          },
+        ],
       });
+
+      const d = res?.data || {};
+
+      // ⬇️ NEW: backend returns 200 + { duplicate: true, message, match } for dupes
+      // ⬇️ backend returns 200 + { duplicate: true, message, match } for dupes
+      if (d.duplicate) {
+        const match = d.match;
+        const detailed = match
+          ? `${d.message} (Title: ${match.title}, Loc: ${match.location}, Exp: ${match.experience}y, ₹${match.salaryMin}–₹${match.salaryMax})`
+          : (d.message || "Duplicate job.");
+
+        setFormError(detailed);
+
+        // 🔴 Make duplicate warning RED and show for 60s
+        toast.error(d.message || "Duplicate job.", {
+          autoClose: 60000,
+          closeOnClick: true,
+          pauseOnHover: true,
+        });
+
+        errRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return; // stop here; do not navigate
+      }
+
+
+      // success path
       setFormError("");
-      toast.success("Job posted");
+      toast.success(d?.message || "Job posted successfully.");
       nav("/recruiter/jobs");
     } catch (err: any) {
-      const { status, code, message } = extractApiError(err);
-      if (status === 409 || code === "DUPLICATE_JOB") {
-        setFormError(message);
-        toast.warning(message);
-      } else {
-        setFormError(message);
-        toast.error(message);
-      }
+      // network/other failures only (should be rare)
+      const { message } = extractApiError(err);
+      setFormError(message);
+      toast.error(message);
       errRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     } finally {
       setSubmitting(false);
     }
   }
 
-  // NEW: bulk upload handler
   async function uploadBulk() {
     if (!bulkFile) {
       toast.info("Please choose an Excel (.xlsx) file.");
@@ -190,43 +225,61 @@ export default function PostJob() {
     }
     const okExt = /\.xlsx$/i.test(bulkFile.name);
     if (!okExt) {
-      toast.error("Only .xlsx files are supported.");
+      toast.error("Only .xlsx files are supported.", { autoClose: 60000 });
       return;
     }
+
     try {
       setBulkUploading(true);
       const fd = new FormData();
       fd.append("file", bulkFile);
+
       const res = await api.post("/api/recruiter/bulk-upload", fd, {
         headers: { Accept: "application/json" },
-        transformRequest: [(data, headers) => {
-          delete (headers as any)["Content-Type"];
-          return data;
-        }],
+        transformRequest: [
+          (data, headers) => {
+            delete (headers as any)["Content-Type"];
+            return data;
+          },
+        ],
       });
-      const msg =
-        typeof res?.data?.message === "string"
-          ? res.data.message
-          : "Bulk job upload completed.";
-      const succ = res?.data?.success ?? 0;
-      const fail = res?.data?.failed ?? 0;
-      toast.success(`${msg}  Success: ${succ}  Failed: ${fail}`);
+
+      const d = res?.data ?? {};
+      const succ = Number(d.success ?? 0);
+      const dup = Number(d.duplicates ?? 0);
+      const fail = Number(d.failed ?? 0);
+
+      if (dup > 0) {
+        // 🔴 Red toast
+        toast.error(
+          `${dup} ${dup === 1 ? "job was" : "jobs were"} duplicate${succ > 0 ? `. ${succ} job(s) posted successfully.` : ". No new jobs added."
+          }`,
+          { autoClose: 60000 }
+        );
+      } else {
+        // 🟢 Green toast
+        toast.success(
+          `${succ} job(s) posted successfully. Failed: ${fail}`,
+          { autoClose: 60000 }
+        );
+      }
+
       setShowBulkModal(false);
       setBulkFile(null);
     } catch (err: any) {
       const { message } = extractApiError(err);
-      toast.error(message);
+      toast.error(message, { autoClose: 60000 });
     } finally {
       setBulkUploading(false);
     }
   }
+
 
   return (
     <div className="mx-auto max-w-5xl px-4 lg:px-0 py-10">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Post Job</h1>
 
-        {/* NEW: Bulk Upload trigger button */}
         <button
           type="button"
           onClick={() => setShowBulkModal(true)}
@@ -278,6 +331,11 @@ export default function PostJob() {
               placeholder="e.g., 600000"
               value={f.salaryMin}
               onChange={up("salaryMin")}
+              onKeyDown={(e) => {
+                if (["e", "E", "+", "-", "."].includes(e.key)) e.preventDefault();
+              }}
+              inputMode="numeric"
+              pattern="\d*"
             />
           </Field>
           <Field label="Salary Max (₹)">
@@ -289,6 +347,11 @@ export default function PostJob() {
               placeholder="e.g., 1200000"
               value={f.salaryMax}
               onChange={up("salaryMax")}
+              onKeyDown={(e) => {
+                if (["e", "E", "+", "-", "."].includes(e.key)) e.preventDefault();
+              }}
+              inputMode="numeric"
+              pattern="\d*"
             />
           </Field>
 
@@ -301,6 +364,11 @@ export default function PostJob() {
               placeholder="e.g., 3"
               value={f.experience}
               onChange={up("experience")}
+              onKeyDown={(e) => {
+                if (["e", "E", "+", "-", "."].includes(e.key)) e.preventDefault();
+              }}
+              inputMode="numeric"
+              pattern="\d*"
             />
           </Field>
           <Field label="Expiry Date">
@@ -331,15 +399,33 @@ export default function PostJob() {
         </Field>
 
         <div className="grid md:grid-cols-2 gap-5">
-          <Field label="Industry"><input className={inputCls} value={f.industry} onChange={up("industry")} /></Field>
-          <Field label="Department"><input className={inputCls} value={f.department} onChange={up("department")} /></Field>
-          <Field label="Company Type"><input className={inputCls} value={f.companyType} onChange={up("companyType")} /></Field>
-          <Field label="Role Category"><input className={inputCls} value={f.roleCategory} onChange={up("roleCategory")} /></Field>
-          <Field label="Stipend"><input className={inputCls} value={f.stipend} onChange={up("stipend")} /></Field>
-          <Field label="Duration"><input className={inputCls} value={f.duration} onChange={up("duration")} /></Field>
-          <Field label="Education"><input className={inputCls} value={f.education} onChange={up("education")} /></Field>
-          <Field label="Posted By"><input className={inputCls} value={f.postedBy} onChange={up("postedBy")} /></Field>
-          <Field label="Top Companies"><input className={inputCls} value={f.topCompanies} onChange={up("topCompanies")} /></Field>
+          <Field label="Industry">
+            <input className={inputCls} value={f.industry} onChange={up("industry")} />
+          </Field>
+          <Field label="Department">
+            <input className={inputCls} value={f.department} onChange={up("department")} />
+          </Field>
+          <Field label="Company Type">
+            <input className={inputCls} value={f.companyType} onChange={up("companyType")} />
+          </Field>
+          <Field label="Role Category">
+            <input className={inputCls} value={f.roleCategory} onChange={up("roleCategory")} />
+          </Field>
+          <Field label="Stipend">
+            <input className={inputCls} value={f.stipend} onChange={up("stipend")} />
+          </Field>
+          <Field label="Duration">
+            <input className={inputCls} value={f.duration} onChange={up("duration")} />
+          </Field>
+          <Field label="Education">
+            <input className={inputCls} value={f.education} onChange={up("education")} />
+          </Field>
+          <Field label="Posted By">
+            <input className={inputCls} value={f.postedBy} onChange={up("postedBy")} />
+          </Field>
+          <Field label="Top Companies">
+            <input className={inputCls} value={f.topCompanies} onChange={up("topCompanies")} />
+          </Field>
         </div>
 
         <div className="grid md:grid-cols-2 gap-5">
@@ -359,9 +445,9 @@ export default function PostJob() {
           />
         </div>
 
-        {/* NEW: Auto-Reject rules section */}
+        {/* Auto-Reject rules section */}
         <div className="space-y-2">
-          <h3 className="text-lg font-medium">Auto‑Reject Rules</h3>
+          <h3 className="text-lg font-medium">Auto-Reject Rules</h3>
           <div className="flex flex-wrap gap-6">
             <Switch
               checked={autoRejectExperience}
@@ -386,7 +472,7 @@ export default function PostJob() {
         </div>
       </form>
 
-      {/* NEW: Bulk Upload Modal */}
+      {/* Bulk Upload Modal */}
       {showBulkModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] z-50 flex items-start justify-center pt-24">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
@@ -402,7 +488,17 @@ export default function PostJob() {
             </div>
 
             <p className="text-sm text-gray-600 mb-3">
-              Choose an Excel file (.xlsx) with columns: Title, Description, Location, SalaryMin, SalaryMax, Experience, ExpiryDate, Skill, Tag, Industry, Department, CompanyType, RoleCategory, Education, Stipend, Duration, PostedBy, TopCompanies, IsRemote, IsUrgent.
+              Choose an Excel file (.xlsx) with columns: <b>Title</b>, <b>Description</b>,{" "}
+              <b>Location</b>, <b>SalaryMin</b>, <b>SalaryMax</b>, <b>Experience</b>,{" "}
+              <b>ExpiryDate</b>, <b>Skill</b>, <b>Tag</b>, <b>Industry</b>, <b>Department</b>,{" "}
+              <b>CompanyType</b>, <b>RoleCategory</b>, <b>Education</b>, <b>Stipend</b>,{" "}
+              <b>Duration</b>, <b>PostedBy</b>, <b>TopCompanies</b>, <b>IsRemote</b>,{" "}
+              <b>IsUrgent</b>.
+              <br />
+              <span className="text-gray-500">
+                Note: exact duplicates (same title, location, experience, and salary min/max) are
+                skipped automatically.
+              </span>
             </p>
 
             <div className="space-y-3">
@@ -472,15 +568,13 @@ function Switch({
   return (
     <label className="flex items-center gap-3 text-sm select-none">
       <span
-        className={`w-11 h-6 rounded-full p-0.5 transition-colors ${
-          checked ? "bg-black" : "bg-gray-300"
-        }`}
+        className={`w-11 h-6 rounded-full p-0.5 transition-colors ${checked ? "bg-black" : "bg-gray-300"
+          }`}
       >
         <input type="checkbox" className="hidden" checked={checked} onChange={onChange as any} />
         <span
-          className={`block w-5 h-5 bg-white rounded-full shadow transition-transform ${
-            checked ? "translate-x-5" : ""
-          }`}
+          className={`block w-5 h-5 bg-white rounded-full shadow transition-transform ${checked ? "translate-x-5" : ""
+            }`}
         />
       </span>
       {label}

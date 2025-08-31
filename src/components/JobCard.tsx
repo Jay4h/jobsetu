@@ -1,3 +1,4 @@
+//src/components/JobCard.tsx
 import { useEffect, useState } from "react";
 import api, { authStorage, onAuthChanged, getRoleFromToken } from "../lib/api";
 import { openAuth } from "../lib/authGate";

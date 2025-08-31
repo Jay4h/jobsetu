@@ -1,24 +1,59 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JobSetu</title>
-</head>
-<body>
-  <div id="root"></div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- 1) jQuery -->
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Title & Branding -->
+    <title>JobSetu – AI Powered Job Portal</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
 
-  <!-- 2) Classic ASP.NET SignalR 2.x client (NOT microsoft-signalr) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/signalr.js/2.4.3/jquery.signalR.min.js"></script>
+    <!-- SEO Meta -->
+    <meta
+      name="description"
+      content="JobSetu is an AI-powered job portal that connects job seekers and recruiters with smart resume tools, AI matching, and real-time chat."
+    />
+    <meta
+      name="keywords"
+      content="JobSetu, jobs, careers, recruitment, AI job portal, job search, resume builder, hire talent, apply jobs"
+    />
+    <meta name="author" content="JobSetu Team" />
+    <meta name="robots" content="index, follow" />
 
-  <!-- 3) Auto-generated hubs from your backend (match your API port/scheme) -->
-  <script src="https://localhost:44378/signalr/hubs"></script>
+    <!-- Theme color -->
+    <meta name="theme-color" content="#2563eb" />
 
-  <!-- 4) Your app -->
-  <script type="module" src="/src/main.tsx"></script>
-</body>
+    <!-- Open Graph / Social Media -->
+    <meta property="og:title" content="JobSetu – AI Powered Job Portal" />
+    <meta
+      property="og:description"
+      content="Smart job search, resume builder, AI resume scoring, and real-time recruiter chat with JobSetu."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://jobsetu.com/" />
+    <meta property="og:image" content="/social-preview.png" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="JobSetu – AI Powered Job Portal" />
+    <meta
+      name="twitter:description"
+      content="Find jobs, build resumes, and chat with recruiters in real time with JobSetu."
+    />
+    <meta name="twitter:image" content="/social-preview.png" />
+
+    <!-- Fonts (optional, if using Inter or custom) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <!-- Vite React Entry -->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

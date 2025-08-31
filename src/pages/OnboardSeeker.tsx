@@ -1,3 +1,4 @@
+//src/pages/OnboardSeeker.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
@@ -10,7 +11,6 @@ type Form = {
   skills: string;                 // comma-separated
   resume?: File | null;
 
-  // 🔹 NEW
   resumeVisibility: boolean;      // show resume publicly?
   publicProfileSlug: string;      // e.g., "john-doe" -> /user/public/john-doe
 };

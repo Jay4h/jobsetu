@@ -13,6 +13,7 @@ type DesignTipsState = {
   lengthStructure?: string | null;
   atsOptimization?: string | null;
 };
+
 type SeekerProfile = {
   fullName?: string;
   email?: string;
@@ -29,6 +30,7 @@ type SeekerProfile = {
   resumeScore?: number | null;
   fitScore?: number | null;
 };
+
 /* ---------- GDPR types ---------- */
 type JsConsentItem = {
   consentId: number;
@@ -57,28 +59,9 @@ function fmtConsentDate(dt?: string) {
   const d = m ? new Date(Number(m[1])) : new Date(s);
   return isNaN(d.getTime()) ? "—" : d.toLocaleString();
 }
-
-type RecruiterProfile = {
-  name?: string;
-  website?: string | null;
-  industry?: string | null;
-  type?: string | null;
-  description?: string | null;
-  logoUrl?: string | null;
-  isApproved?: boolean;
-  isVerified?: boolean;
-  slug?: string | null;
-  createdAt?: string;
-};
-
-type PostedJob = { title?: string; jobId?: number };
-
-type Summary = {
-  views: { viewCount: number; lastViewedBy: string | null };
-  saved: { total: number; recent: { createdAt: string; title: string; jobId: number }[] };
-  applied: { total: number; recent: { appliedOn: string; title: string; jobId: number; currentStatus?: string }[] };
-  ai?: { lastResumeFitScore?: number | null };
-};
+function baseName(p?: string | null) {
+  return p ? p.split(/[\\/]/).pop() || p : "—";
+}
 
 /* ---------------- Helpers ---------------- */
 function slugify(input: string): string {
@@ -94,7 +77,8 @@ function isValidSlug(s: string): boolean {
   return /^[a-z0-9](?:[a-z0-9-]{1,30})[a-z0-9]$/.test(s); // 3–32 chars, no edge hyphens
 }
 function buildPublicProfileUrl(slug: string): string {
-  return `https://localhost:44380/api/user/public/${encodeURIComponent(slug)}`;
+  const base = (api as any)?.defaults?.baseURL || window.location.origin;
+  return `${String(base).replace(/\/+$/,'')}/api/user/public/${encodeURIComponent(slug)}`;
 }
 function getFilenameFromDisposition(cd?: string | null): string | null {
   if (!cd) return null;
@@ -161,9 +145,12 @@ export default function Profile() {
     matchedKeywords?: string[];
     wordCount?: number;
   }>({});
+
+  // GDPR
   const [jsConsents, setJsConsents] = useState<JsConsentResp | null>(null);
   const [jsConsentsErr, setJsConsentsErr] = useState<string | null>(null);
   const [jsConsentsLoading, setJsConsentsLoading] = useState<boolean>(false);
+
   // ---------- Skill Gap Analysis (merged) ----------
   const [gapJobId, setGapJobId] = useState<number | "">("");
   const [gapLoading, setGapLoading] = useState(false);
@@ -176,50 +163,6 @@ export default function Profile() {
     gaps?: string[];
     suggestions?: string[];
   }>({});
-  // Fetch GDPR consents for JobSeeker
-  useEffect(() => {
-    if (role !== "JobSeeker") return;
-
-    setJsConsentsLoading(true);
-    api
-      .get("/api/user/consents", { suppressUnauthorized: true })
-      .then((r) => {
-        const raw = r.data || {};
-        // map PascalCase → camelCase
-        const items: JsConsentItem[] = (raw.items || []).map((x: any) => ({
-          consentId: x.ConsentId,
-          userId: x.UserId,
-          isAccepted: !!x.IsAccepted,
-          consentDate: x.ConsentDate,
-          consentType: x.ConsentType,
-          version: x.Version,
-          ipAddress: x.IpAddress,
-          userAgent: x.UserAgent,
-          isCurrent: !!x.IsCurrent,
-        }));
-        const c = raw.current
-          ? ({
-            consentId: raw.current.ConsentId,
-            userId: raw.current.UserId,
-            isAccepted: !!raw.current.IsAccepted,
-            consentDate: raw.current.ConsentDate,
-            consentType: raw.current.ConsentType,
-            version: raw.current.Version,
-            ipAddress: raw.current.IpAddress,
-            userAgent: raw.current.UserAgent,
-            isCurrent: !!raw.current.IsCurrent,
-          } as JsConsentItem)
-          : null;
-
-        setJsConsents({
-          total: typeof raw.total === "number" ? raw.total : items.length,
-          current: c,
-          items,
-        });
-      })
-      .catch((e) => setJsConsentsErr(e?.message || "Failed to load consents"))
-      .finally(() => setJsConsentsLoading(false));
-  }, [role]);
 
   // -------- Project Rewriter + Video Resume Script --------
   const [projectText, setProjectText] = useState("");
@@ -238,13 +181,15 @@ export default function Profile() {
   const [interviewLoading, setInterviewLoading] = useState(false);
   const [questionCount, setQuestionCount] = useState<number>(10);
   const [interviewQs, setInterviewQs] = useState<string[] | null>(null);
-  // AI Mode constants
+
+  // AI Mode constants — updated to match backend
   const AI_MODES = {
-    MOCK_INTERVIEW: "MockInterview",
-    PROJECT_REWRITER: "ProjectRewriter",
-    VIDEO_SCRIPT: "VideoScript",
-    RESUME_ASSISTANT: "ResumeAssistant",
-  };
+    MOCK_INTERVIEW: "InterviewPrep",
+    PROJECT_REWRITER: "ProjectRewrite",
+    VIDEO_SCRIPT: "VideoResumeScript",
+    RESUME_ASSISTANT: "CareerAdvisor",
+  } as const;
+
   const handleLangChange = (lang: "en" | "hi" | "gu") => {
     setChatLang(lang);
     localStorage.setItem("chatLang", lang);
@@ -289,7 +234,7 @@ export default function Profile() {
     })();
 
     async function loadSeekerAll() {
-      await Promise.all([loadSeekerProfile(), loadSeekerSummaryWithFallback()]);
+      await Promise.all([loadSeekerProfile(), loadSeekerSummaryWithFallback(), loadJsConsents()]);
     }
 
     async function loadRecruiterAll() {
@@ -300,6 +245,50 @@ export default function Profile() {
       mounted = false;
     };
   }, []);
+
+  /* ---------- GDPR loader ---------- */
+  async function loadJsConsents() {
+    setJsConsentsLoading(true);
+    setJsConsentsErr(null);
+    try {
+      const r = await api.get("/api/user/consents", { suppressUnauthorized: true });
+      const raw = r.data || {};
+      const items: JsConsentItem[] = (raw.items || []).map((x: any) => ({
+        consentId: x.ConsentId,
+        userId: x.UserId,
+        isAccepted: !!x.IsAccepted,
+        consentDate: x.ConsentDate,
+        consentType: x.ConsentType,
+        version: x.Version,
+        ipAddress: x.IpAddress,
+        userAgent: x.UserAgent,
+        isCurrent: !!x.IsCurrent,
+      }));
+      const c = raw.current
+        ? ({
+          consentId: raw.current.ConsentId,
+          userId: raw.current.UserId,
+          isAccepted: !!raw.current.IsAccepted,
+          consentDate: raw.current.ConsentDate,
+          consentType: raw.current.ConsentType,
+          version: raw.current.Version,
+          ipAddress: raw.current.IpAddress,
+          userAgent: raw.current.UserAgent,
+          isCurrent: !!raw.current.IsCurrent,
+        } as JsConsentItem)
+        : null;
+
+      setJsConsents({
+        total: typeof raw.total === "number" ? raw.total : items.length,
+        current: c,
+        items,
+      });
+    } catch (e: any) {
+      setJsConsentsErr(e?.message || "Failed to load consents");
+    } finally {
+      setJsConsentsLoading(false);
+    }
+  }
 
   /* ---------- merged gap analysis ---------- */
   async function runSkillGap() {
@@ -376,6 +365,7 @@ export default function Profile() {
     };
     setSeeker(p);
   }
+
   function extractDesignTips(data: any): DesignTipsState {
     const tips: DesignTip[] =
       (Array.isArray(data?.designTips) && data.designTips) ||
@@ -389,52 +379,28 @@ export default function Profile() {
     };
   }
 
-  // Also normalize the trailing "viewed on DD-MM-YYYY HH:mm:ss" to IST (browser-safe).
+  type PostedJob = { title?: string; jobId?: number };
+  type Summary = {
+    views: { viewCount: number; lastViewedBy: string | null };
+    saved: { total: number; recent: { createdAt: string; title: string; jobId: number }[] };
+    applied: { total: number; recent: { appliedOn: string; title: string; jobId: number; currentStatus?: string }[] };
+    ai?: { lastResumeFitScore?: number | null };
+  };
+
+  // Pull summary and views (ask backend to format to local TZ)
   async function loadSeekerSummaryWithFallback() {
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
     const [summaryRes, viewsRes] = await Promise.allSettled([
       api.get<Summary>("/api/user/profile/summary", { meta: { ignoreGlobal401: true } as any }),
-      api.get("/api/user/resume/views", { meta: { ignoreGlobal401: true } as any }),
+      api.get(`/api/user/resume/views?tz=${tz}`, { meta: { ignoreGlobal401: true } as any }),
     ]);
 
-    // start with defaults
+    // defaults
     let views = { viewCount: 0, lastViewedBy: null as string | null };
     let saved = { total: 0, recent: [] as { createdAt: string; title: string; jobId: number }[] };
     let applied = { total: 0, recent: [] as { appliedOn: string; title: string; jobId: number; currentStatus?: string }[] };
     let ai: { lastResumeFitScore?: number | null } = { lastResumeFitScore: undefined };
 
-    // Convert "... viewed on DD/MM/YYYY HH:mm:ss" (or DD-MM-YYYY) which is in IST
-    // to the viewer's local timezone and format as "DD/MM/YYYY HH:mm:ss".
-    function normalizeViewedOn(str?: string | null) {
-      if (!str) return null;
-
-      // Accept both slashes and hyphens, and optional comma between date/time.
-      const m = str.match(/^(.*viewed on )(\d{2})[\/-](\d{2})[\/-](\d{4})[ ,]*(\d{2}):(\d{2}):(\d{2})$/);
-      if (!m) return str; // leave unknown formats alone
-
-      const [, prefix, dd, mm, yyyy, HH, MM, SS] = m;
-
-      // The server time is IST (UTC+05:30). Convert that IST timestamp -> UTC.
-      const IST_OFFSET_MIN = 330; // 5h 30m
-      const utcMs = Date.UTC(+yyyy, +mm - 1, +dd, +HH, +MM, +SS) - IST_OFFSET_MIN * 60 * 1000;
-
-      // Format in the user's local timezone (browser default).
-      const formatted = new Intl.DateTimeFormat("en-IN", {
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      })
-        .format(new Date(utcMs))
-        .replace(",", ""); // "DD/MM/YYYY, HH:mm:ss" -> "DD/MM/YYYY HH:mm:ss"
-
-      return `${prefix}${formatted}`;
-    }
-
-    // take what summary has first
     if (summaryRes.status === "fulfilled") {
       const data = summaryRes.value.data;
       views = data?.views ?? views;
@@ -443,19 +409,29 @@ export default function Profile() {
       ai = data?.ai ?? ai;
     }
 
-    // prefer /resume/views for freshest counts + localizable timestamp
     if (viewsRes.status === "fulfilled") {
       const d: any = viewsRes.value.data;
       views = {
         viewCount: Number(d?.viewCount ?? views.viewCount ?? 0),
-        lastViewedBy: normalizeViewedOn(d?.lastViewedBy) ?? views.lastViewedBy ?? null,
+        lastViewedBy: d?.lastViewedBy ?? views.lastViewedBy ?? null,
       };
     }
 
     setSummary({ views, saved, applied, ai });
   }
 
-
+  type RecruiterProfile = {
+    name?: string;
+    website?: string | null;
+    industry?: string | null;
+    type?: string | null;
+    description?: string | null;
+    logoUrl?: string | null;
+    isApproved?: boolean;
+    isVerified?: boolean;
+    slug?: string | null;
+    createdAt?: string;
+  };
 
   async function loadRecruiterProfile() {
     const { data } = await api.get("/api/recruiter/profile");
@@ -492,7 +468,7 @@ export default function Profile() {
   const seekerSkillTags = useMemo(() => {
     if (!seeker?.skills) return [];
     // split, trim, drop empties
-    const raw = String(seeker.skills).split(",").map(s => s.trim()).filter(Boolean);
+    const raw = String(seeker.skills).split(",").map((s) => s.trim()).filter(Boolean);
     // case-insensitive dedupe, but keep original display text of first occurrence
     const seen = new Set<string>();
     const unique: string[] = [];
@@ -623,17 +599,16 @@ export default function Profile() {
       setSeeker((prev) => (prev ? { ...prev, resumeScore: newScore } : prev));
       await loadSeekerProfile();
     } catch (err: any) {
-      console.error("Rescore failed:", err?.response || err); // <-- see DevTools
+      console.error("Rescore failed:", err?.response || err);
       const msg =
         err?.response?.data?.message ||
         err?.message ||
         "Failed to score resume";
       alert(msg);
     } finally {
-      setScoring(false); // <-- ensures button re-enables even on error
+      setScoring(false);
     }
   }
-
 
   /* ---------- AI TOOLS actions ---------- */
   async function generateFitScore() {
@@ -668,11 +643,39 @@ export default function Profile() {
     return Array.from(s);
   }
 
+  // UPDATED: pull from suggestedActions.skills/keywords + clean prefixes
   function extractSuggestions(data: any): string[] {
-    if (Array.isArray(data?.missingKeywords)) return data.missingKeywords;
-    if (Array.isArray(data?.suggestions)) return data.suggestions;
-    if (Array.isArray(data)) return data;
-    return [];
+    const out: string[] = [];
+
+    // top-level missingKeywords (already plain tokens)
+    if (Array.isArray(data?.missingKeywords)) {
+      out.push(...data.missingKeywords.map((x: any) => String(x).trim()).filter(Boolean));
+    }
+
+    const sa = data?.suggestedActions || {};
+    const take = (arr: any) => {
+      if (!arr) return;
+      if (Array.isArray(arr)) {
+        arr.forEach((item) => {
+          let text =
+            typeof item === "string"
+              ? item
+              : item?.advice || item?.message || item?.text || "";
+
+          text = String(text).trim();
+          if (!text) return;
+
+          // strip "Consider adding skill/keyword: 'X'" → X
+          const m = text.match(/Consider adding (?:skill|keyword):\s*['"]?([^'"]+)['"]?/i);
+          out.push(m ? m[1] : text);
+        });
+      }
+    };
+    take(sa.skills);
+    take(sa.keywords);
+
+    // unique, tidy
+    return Array.from(new Set(out.map((x) => x.trim().toLowerCase()))).filter(Boolean);
   }
 
   function toggleSuggestion(s: string) {
@@ -747,24 +750,39 @@ export default function Profile() {
   }
 
   async function parseResume() {
-    if (!seeker?.resumeFile) {
-      alert("Please upload a resume first.");
-      return;
-    }
-    setParseLoading(true);
-    try {
-      const { data } = await api.post("/api/resume/parse");
-      setParsed({
-        emails: data?.emails ?? data?.Emails ?? [],
-        phones: data?.phones ?? data?.Phones ?? [],
-        skills: data?.skills ?? data?.Skills ?? [],
-      });
-    } catch (err: any) {
-      alert(err?.response?.data?.message || err?.message || "Failed to parse resume");
-    } finally {
-      setParseLoading(false);
-    }
+  if (!seeker?.resumeFile) {
+    alert("Please upload a resume first.");
+    return;
   }
+  setParseLoading(true);
+  try {
+    const { data } = await api.post("/api/resume/parse");
+
+    // Coerce anything (string | {value: string} | unknown) -> string[]
+    const toStrings = (arr: any): string[] =>
+      Array.isArray(arr)
+        ? arr
+            .map((x) => {
+              if (x == null) return "";
+              if (typeof x === "string") return x.trim();
+              if (typeof x === "object" && "value" in x) return String((x as any).value).trim();
+              return String(x).trim();
+            })
+            .filter(Boolean)
+        : [];
+
+    setParsed({
+      emails: toStrings(data?.emails),
+      phones: toStrings(data?.phones),
+      skills: toStrings(data?.skills),
+    });
+  } catch (err: any) {
+    alert(err?.response?.data?.message || err?.message || "Failed to parse resume");
+  } finally {
+    setParseLoading(false);
+  }
+}
+
 
   async function loadDesignTips() {
     if (!seeker?.resumeFile) {
@@ -781,6 +799,7 @@ export default function Profile() {
       setTipsLoading(false);
     }
   }
+
   async function generateAiPdf() {
     if (!seeker?.resumeFile) {
       alert("Please upload a resume first.");
@@ -789,7 +808,11 @@ export default function Profile() {
     setPdfLoading(true);
     try {
       const res = await api.get("/api/user/resume/pdf", { responseType: "blob" } as any);
-      const filename = `JobSetu_AI_Resume_${(seeker.fullName || "profile").replace(/\s+/g, "_")}.pdf`;
+
+      const cd: string | undefined =
+        res.headers?.["content-disposition"] || res.headers?.["Content-Disposition"];
+      const fallback = `JobSetu_AI_Resume_${(seeker.fullName || "profile").replace(/\s+/g, "_")}.pdf`;
+      const filename = getFilenameFromDisposition(cd ?? null) || fallback;
 
       const blobUrl = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
       const a = document.createElement("a");
@@ -800,15 +823,34 @@ export default function Profile() {
       a.remove();
       URL.revokeObjectURL(blobUrl);
     } catch (err: any) {
-      const msg =
-        err?.response?.status === 404
-          ? "We couldn’t generate the PDF. Make sure your profile is complete."
-          : err?.response?.data?.message || err?.message || "Failed to generate AI PDF";
+      let msg = "Failed to generate AI PDF";
+      const res = err?.response;
+
+      if (res?.status === 404) {
+        msg = "We couldn’t generate the PDF. Make sure your profile is complete.";
+      } else if (res?.data instanceof Blob) {
+        // Axios gives a Blob for non-2xx responses when responseType=blob.
+        try {
+          const text = await res.data.text();
+          // API returns { message, detail }
+          const j = JSON.parse(text);
+          msg = j.message || j.detail || msg;
+        } catch {
+          // ignore parse errors, keep default
+        }
+      } else if (res?.data?.message || res?.data?.detail) {
+        msg = res.data.message || res.data.detail;
+      } else if (err?.message) {
+        msg = err.message; // e.g. "Request failed with status code 500"
+      }
+
       alert(msg);
     } finally {
       setPdfLoading(false);
     }
   }
+
+
 
   /* ---------- NEW helpers/actions for added features ---------- */
   function languagePreface(lang: "en" | "hi" | "gu") {
@@ -867,7 +909,7 @@ export default function Profile() {
 
       const { data } = await api.post("/api/resume/chat", {
         Question: prompt,
-        Mode: AI_MODES.PROJECT_REWRITER, // Adjust mode for your backend
+        Mode: AI_MODES.PROJECT_REWRITER,
       });
 
       const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
@@ -892,7 +934,7 @@ export default function Profile() {
 
       const { data } = await api.post("/api/resume/chat", {
         Question: prompt,
-        Mode: AI_MODES.VIDEO_SCRIPT, // Adjust mode for your backend
+        Mode: AI_MODES.VIDEO_SCRIPT,
       });
 
       const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
@@ -903,7 +945,6 @@ export default function Profile() {
       setVideoLoading(false);
     }
   }
-
 
   // Multilingual Q&A
   async function askMultilingual() {
@@ -917,7 +958,7 @@ export default function Profile() {
 
       const { data } = await api.post("/api/resume/chat", {
         Question: prompt,
-        Mode: "ResumeAssistant", // generic help mode—change if needed
+        Mode: AI_MODES.RESUME_ASSISTANT, // understood by backend
       });
 
       const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
@@ -1020,7 +1061,7 @@ export default function Profile() {
             </Card>
 
             <Card title="Resume">
-              <TwoCol label="File" value={seeker.resumeFile || "—"} />
+              <TwoCol label="File" value={baseName(seeker?.resumeFile)} />
               <TwoCol
                 label="Visibility"
                 value={
@@ -1030,27 +1071,21 @@ export default function Profile() {
                   </div>
                 }
               />
-              <div className="mt-2">
+              <div className="mt-2 flex gap-2">
                 <button className="btn btn-primary" onClick={downloadResume} disabled={!seeker.resumeFile}>
                   Download resume
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={generateAiPdf}
+                  disabled={pdfLoading || !seeker.resumeFile}
+                  title="Generate an ATS-optimized AI PDF from your profile"
+                >
+                  {pdfLoading ? "Generating…" : "Generate AI Resume PDF"}
                 </button>
               </div>
             </Card>
 
-            <div className="mt-2 flex gap-2">
-              <button className="btn btn-primary" onClick={downloadResume} disabled={!seeker.resumeFile}>
-                Download resume
-              </button>
-
-              <button
-                className="btn btn-ghost"
-                onClick={generateAiPdf}
-                disabled={pdfLoading || !seeker.resumeFile}
-                title="Generate an ATS-optimized AI PDF from your profile"
-              >
-                {pdfLoading ? "Generating…" : "Generate AI Resume PDF"}
-              </button>
-            </div>
             {/* GDPR Consent Logs */}
             <Card title="GDPR Consent Logs">
               <div className="flex items-center justify-between">
@@ -1137,12 +1172,10 @@ export default function Profile() {
                 </>
               )}
             </Card>
-
           </div>
 
           <div className="space-y-6">
             {/* Resume Score card */}
-            {/* Resume Score card (rendering) */}
             <Card title="Resume score">
               {!seeker?.resumeFile && (
                 <div className="text-sm text-gray-600">
@@ -1197,7 +1230,6 @@ export default function Profile() {
                 </div>
               )}
             </Card>
-
 
             {/* Public link (copy only) */}
             {seeker.publicProfileSlug && (
@@ -1591,7 +1623,6 @@ export default function Profile() {
                     <div className="text-sm text-gray-600">No tips available.</div>
                   )}
                 </div>
-
               </div>
             )}
           </Card>
@@ -1658,7 +1689,6 @@ export default function Profile() {
             )}
           </Card>
 
-
           {/* NEW: Multilingual Resume Help */}
           <Card title="Multilingual resume help (English / हिंदी / ગુજરાતી)">
             <Two>
@@ -1697,7 +1727,6 @@ export default function Profile() {
               </div>
             )}
           </Card>
-
         </div>
       )}
 
