@@ -48,35 +48,35 @@ export default function CompanyJobs() {
   const [headerLoading, setHeaderLoading] = useState(true);
 
   // ----- Header fetch (companies list → find by id) -----
-// ----- Header fetch (use companies/search; no approved filter) -----
-useEffect(() => {
-  if (!id) return;
-  let mounted = true;
-  (async () => {
-    setHeaderLoading(true);
-    try {
-      const resp = await api.get("/api/jobs/companies/search", {
-        params: { query: "", page: 1, limit: 1000 }, // includes approved + unapproved
-      });
-      const arr: any[] = resp?.data?.results ?? resp?.data ?? [];
-      const found = arr.find((c) => {
-        const cid = c.CompanyId ?? c.companyId ?? c.id ?? c.Id;
-        return Number(cid) === id;
-      });
-      if (mounted && found) {
-        // This endpoint already returns absolute logoUrl via ToAbsoluteLogoUrl()
-        setCompanyHeader({
-          name: found.name ?? found.Name ?? "Company",
-          logoUrl: found.logoUrl ?? found.LogoUrl ?? "",
+  // ----- Header fetch (use companies/search; no approved filter) -----
+  useEffect(() => {
+    if (!id) return;
+    let mounted = true;
+    (async () => {
+      setHeaderLoading(true);
+      try {
+        const resp = await api.get("/api/jobs/companies/search", {
+          params: { query: "", page: 1, limit: 1000 }, // includes approved + unapproved
         });
+        const arr: any[] = resp?.data?.results ?? resp?.data ?? [];
+        const found = arr.find((c) => {
+          const cid = c.CompanyId ?? c.companyId ?? c.id ?? c.Id;
+          return Number(cid) === id;
+        });
+        if (mounted && found) {
+          // This endpoint already returns absolute logoUrl via ToAbsoluteLogoUrl()
+          setCompanyHeader({
+            name: found.name ?? found.Name ?? "Company",
+            logoUrl: toAbsoluteMedia(found.logoUrl ?? found.LogoUrl ?? ""),
+          });
+        }
+      } finally {
+        if (mounted) setHeaderLoading(false);
       }
-    } finally {
-      if (mounted) setHeaderLoading(false);
-    }
-  })();
-  return () => { mounted = false; };
-}, [id]);
-  
+    })();
+    return () => { mounted = false; };
+  }, [id]);
+
 
   // ----- Jobs fetch (by-company) -----
   useEffect(() => {
@@ -95,8 +95,8 @@ useEffect(() => {
         const list: any[] = Array.isArray(res?.data?.results)
           ? res.data.results
           : Array.isArray(res?.data)
-          ? res.data
-          : [];
+            ? res.data
+            : [];
 
         setJobs(list.map(mapApiJob));
         setTotal(Number(res?.data?.total ?? list.length));
@@ -150,14 +150,14 @@ useEffect(() => {
         {loading
           ? Array.from({ length: 6 }).map((_, i) => <JobCardSkeleton key={i} />)
           : jobs.length === 0
-          ? <EmptyState />
-          : jobs.map((j) => (
+            ? <EmptyState />
+            : jobs.map((j) => (
               <JobCard
                 key={j.jobId}
                 {...j}
-                onApply={() => {}}
-                onWithdraw={() => {}}
-                onUnsave={() => {}}
+                onApply={() => { }}
+                onWithdraw={() => { }}
+                onUnsave={() => { }}
               />
             ))}
       </div>
@@ -198,15 +198,15 @@ function EmptyState() {
 }
 
 function mapApiJob(r: any): Job {
-  // /api/jobs/by-company returns company = { Name, LogoUrl } and LogoUrl is already absolute (server helper)
   const c = r.company || {};
+  const rawLogo = c.LogoUrl ?? c.logoUrl ?? "";
   return {
     jobId: r.JobId ?? r.jobId,
     title: r.Title ?? r.title ?? "Untitled",
     location: r.Location ?? r.location,
     company: {
       name: c.Name ?? c.name ?? "",
-      logoUrl: c.LogoUrl ?? c.logoUrl ?? "",
+      logoUrl: toAbsoluteMedia(rawLogo),  // ✅ normalize here
     },
     tags: r.tags ?? r.Tags ?? [],
     experienceRequired: r.ExperienceRequired ?? r.experienceRequired,
@@ -218,3 +218,4 @@ function mapApiJob(r: any): Job {
     isApplied: (r.isApplied ?? r.IsApplied) ?? false,
   };
 }
+

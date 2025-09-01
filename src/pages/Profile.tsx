@@ -14,6 +14,27 @@ type DesignTipsState = {
   atsOptimization?: string | null;
 };
 
+type PostedJob = { title?: string; jobId?: number };
+
+type Summary = {
+  views: { viewCount: number; lastViewedBy: string | null };
+  saved: { total: number; recent: { createdAt: string; title: string; jobId: number }[] };
+  applied: { total: number; recent: { appliedOn: string; title: string; jobId: number; currentStatus?: string }[] };
+  ai?: { lastResumeFitScore?: number | null };
+};
+
+type RecruiterProfile = {
+  name?: string;
+  website?: string | null;
+  industry?: string | null;
+  type?: string | null;
+  description?: string | null;
+  logoUrl?: string | null;
+  isApproved?: boolean;
+  isVerified?: boolean;
+  slug?: string | null;
+  createdAt?: string;
+};
 type SeekerProfile = {
   fullName?: string;
   email?: string;
@@ -78,7 +99,7 @@ function isValidSlug(s: string): boolean {
 }
 function buildPublicProfileUrl(slug: string): string {
   const base = (api as any)?.defaults?.baseURL || window.location.origin;
-  return `${String(base).replace(/\/+$/,'')}/api/user/public/${encodeURIComponent(slug)}`;
+  return `${String(base).replace(/\/+$/, '')}/api/user/public/${encodeURIComponent(slug)}`;
 }
 function getFilenameFromDisposition(cd?: string | null): string | null {
   if (!cd) return null;
@@ -98,7 +119,8 @@ function getFilenameFromDisposition(cd?: string | null): string | null {
 export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<Role | null>(null);
-
+  const [bulletsOpen, setBulletsOpen] = useState(false);
+  const [bulletsText, setBulletsText] = useState<string | null>(null);
   // NEW: four tabs (assistant separated)
   const [tab, setTab] = useState<"overview" | "edit" | "ai-tools" | "assistant">("overview");
 
@@ -379,13 +401,7 @@ export default function Profile() {
     };
   }
 
-  type PostedJob = { title?: string; jobId?: number };
-  type Summary = {
-    views: { viewCount: number; lastViewedBy: string | null };
-    saved: { total: number; recent: { createdAt: string; title: string; jobId: number }[] };
-    applied: { total: number; recent: { appliedOn: string; title: string; jobId: number; currentStatus?: string }[] };
-    ai?: { lastResumeFitScore?: number | null };
-  };
+
 
   // Pull summary and views (ask backend to format to local TZ)
   async function loadSeekerSummaryWithFallback() {
@@ -420,18 +436,6 @@ export default function Profile() {
     setSummary({ views, saved, applied, ai });
   }
 
-  type RecruiterProfile = {
-    name?: string;
-    website?: string | null;
-    industry?: string | null;
-    type?: string | null;
-    description?: string | null;
-    logoUrl?: string | null;
-    isApproved?: boolean;
-    isVerified?: boolean;
-    slug?: string | null;
-    createdAt?: string;
-  };
 
   async function loadRecruiterProfile() {
     const { data } = await api.get("/api/recruiter/profile");
@@ -712,29 +716,29 @@ export default function Profile() {
     }
   }
 
-  async function askAIToWriteBullets() {
-    if (selectedSuggestions.length === 0) {
-      alert("Select at least one suggestion.");
-      return;
-    }
-    try {
-      const prompt =
-        `Turn these keywords into 5 ATS-friendly resume bullet points with action verbs and metrics where possible: ` +
-        selectedSuggestions.join(", ") +
-        `. Keep each bullet under 20 words.`;
-
-      const { data } = await api.post("/api/resume/chat", {
-        Question: prompt,
-        Mode: "ResumeSummaryGenerator",
-      });
-
-      const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
-
-      alert(text);
-    } catch (err: any) {
-      alert(err?.response?.data?.message || err?.message || "Failed to ask AI");
-    }
+ async function askAIToWriteBullets() {
+  if (selectedSuggestions.length === 0) {
+    alert("Select at least one suggestion.");
+    return;
   }
+  try {
+    const prompt =
+      `Turn these keywords into 5 ATS-friendly resume bullet points with action verbs and metrics where possible: ` +
+      selectedSuggestions.join(", ") +
+      `. Keep each bullet under 20 words.`;
+
+    const { data } = await api.post("/api/resume/chat", {
+      Question: prompt,
+      Mode: "ResumeSummaryGenerator",
+    });
+
+    const text = (data?.shortAnswer as string)?.replace(/<br\/?>/gi, "\n") || data?.answer || "(No answer)";
+    setBulletsText(String(text));
+    setBulletsOpen(true);   // ✅ open modal only
+  } catch (err: any) {
+    alert(err?.response?.data?.message || err?.message || "Failed to ask AI");
+  }
+}
 
   async function copySelected() {
     if (selectedSuggestions.length === 0) {
@@ -750,18 +754,18 @@ export default function Profile() {
   }
 
   async function parseResume() {
-  if (!seeker?.resumeFile) {
-    alert("Please upload a resume first.");
-    return;
-  }
-  setParseLoading(true);
-  try {
-    const { data } = await api.post("/api/resume/parse");
+    if (!seeker?.resumeFile) {
+      alert("Please upload a resume first.");
+      return;
+    }
+    setParseLoading(true);
+    try {
+      const { data } = await api.post("/api/resume/parse");
 
-    // Coerce anything (string | {value: string} | unknown) -> string[]
-    const toStrings = (arr: any): string[] =>
-      Array.isArray(arr)
-        ? arr
+      // Coerce anything (string | {value: string} | unknown) -> string[]
+      const toStrings = (arr: any): string[] =>
+        Array.isArray(arr)
+          ? arr
             .map((x) => {
               if (x == null) return "";
               if (typeof x === "string") return x.trim();
@@ -769,19 +773,19 @@ export default function Profile() {
               return String(x).trim();
             })
             .filter(Boolean)
-        : [];
+          : [];
 
-    setParsed({
-      emails: toStrings(data?.emails),
-      phones: toStrings(data?.phones),
-      skills: toStrings(data?.skills),
-    });
-  } catch (err: any) {
-    alert(err?.response?.data?.message || err?.message || "Failed to parse resume");
-  } finally {
-    setParseLoading(false);
+      setParsed({
+        emails: toStrings(data?.emails),
+        phones: toStrings(data?.phones),
+        skills: toStrings(data?.skills),
+      });
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || "Failed to parse resume");
+    } finally {
+      setParseLoading(false);
+    }
   }
-}
 
 
   async function loadDesignTips() {
@@ -994,6 +998,7 @@ export default function Profile() {
   const recentApplied = summary?.applied?.recent ?? [];
 
   return (
+    <>
     <div className="max-w-6xl mx-auto px-4 lg:px-6 py-8">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -1739,6 +1744,41 @@ export default function Profile() {
         </div>
       )}
     </div>
+      {bulletsOpen && (
+      <div
+        className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+        role="dialog" aria-modal="true" aria-labelledby="ai-bullets-title"
+        onKeyDown={(e) => e.key === "Escape" && setBulletsOpen(false)}
+      >
+        <div className="bg-white rounded-2xl shadow-xl w-[min(680px,92vw)] p-5">
+          <div className="flex items-center justify-between">
+            <h2 id="ai-bullets-title" className="text-base font-medium">AI Resume Bullets</h2>
+            <button className="btn btn-ghost" onClick={() => setBulletsOpen(false)}>✕</button>
+          </div>
+
+          <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-gray-800">
+            {(bulletsText || "")
+              .replace(/<\/?br\/?>/gi, "\n")
+              .split(/\n+/)
+              .map(s => s.replace(/^\s*[-•\d]+[.)]?\s*/,'').trim()) // strip bullets/numbers
+              .filter(Boolean)
+              .map((line, i) => <li key={i}>{line}</li>)
+            }
+          </ul>
+
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              className="btn btn-ghost"
+              onClick={async () => { try { await navigator.clipboard.writeText(bulletsText || ""); } catch {} }}
+            >
+              Copy
+            </button>
+            <button className="btn btn-primary" onClick={() => setBulletsOpen(false)}>Done</button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

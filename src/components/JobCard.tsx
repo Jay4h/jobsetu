@@ -133,83 +133,47 @@ export default function JobCard(props: JobCardProps) {
     return () => { cancelled = true; };
   }, [authed, jobId]);
 
-  async function handleSave() {
-    if (!requireJobSeeker("save")) return;
-    if (saved || saving) return;
-    setSaving(true);
-    try {
-      await postWithId("/api/jobs/save", jobId);
-      setSaved(true);
-      await refreshStatus(); // ensure backend truth
-    } catch (err: any) {
-      const status = Number(err?.status);
-      const msg = extractMessage(err) || "";
+async function handleSave() {
+  if (!requireJobSeeker("save")) return;
+  if (saved || saving) return;
+  setSaving(true);
+  try {
+    await api.post("/api/jobs/save", jobId, { headers: { "Content-Type": "application/json" } });
+    setSaved(true);
+    await refreshStatus();
+  } catch (err: any) {
+    const status = Number(err?.status);
+    const msg = extractMessage(err) || "";
+    if (status === 401 || status === 403) alert("Please log in as a Job Seeker to save jobs.");
+    else if (/already\s*saved/i.test(msg)) { setSaved(true); alert("You already saved this job."); }
+    else { alert(msg || "Couldn't save this job."); await refreshStatus(); }
+  } finally { setSaving(false); }
+}
 
-      if (status === 401 || status === 403) {
-        alert("Please log in as a Job Seeker to save jobs.");
-      } else if (/already\s*saved/i.test(msg)) {
-        setSaved(true);
-        alert("You already saved this job.");
-      } else {
-        alert(msg || "Couldn't save this job.");
-        await refreshStatus();
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
 
+// Apply -> always send object
 async function handleApply() {
   if (!requireJobSeeker("apply")) return;
   if (applied || applying) return;
-
   setApplying(true);
   try {
-    const res = await postWithId("/api/jobs/apply", jobId);
+    const res = await api.post("/api/jobs/apply", { jobId }, { headers: { "Content-Type": "application/json" } });
     const d = res?.data || {};
 
-    // cases returned as 200 OK by backend
-    if (d.needResume) {
-      alert(d.message || "Please upload your resume before applying.");
-      setApplied(false);
-      return;
-    }
-    if (d.autoRejected) {
-      // e.g. rule: "LocationMismatch" | "ExperienceMismatch"
-      alert(d.message || `Application auto-rejected${d.rule ? `: ${d.rule}` : ""}.`);
-      setApplied(false);
-      return;
-    }
-    if (d.alreadyApplied) {
-      setApplied(true);
-      alert(d.message || "Already applied.");
-      return;
-    }
+    if (d.needResume) { alert(d.message || "Please upload your resume before applying."); setApplied(false); return; }
+    if (d.autoRejected) { alert(d.message || "Application auto-rejected."); setApplied(false); return; }
+    if (d.alreadyApplied) { setApplied(true); alert(d.message || "Already applied."); return; }
+    if (d.applied) setApplied(true);
 
-    // success path
-    if (d.applied) {
-      setApplied(true);
-      // optional: alert(d.message || "Application submitted.");
-    } else {
-      // unexpected but non-fatal
-      alert(d.message || "Could not confirm application.");
-    }
-
-    await refreshStatus(); // keep UI in sync with server
+    await refreshStatus();
   } catch (err: any) {
-    // network/real error fallback
     const status = Number(err?.status);
     const msg = extractMessage(err) || "";
-    if (status === 401 || status === 403) {
-      alert("Please log in as a Job Seeker to apply.");
-    } else {
-      alert(msg || "Couldn't apply to this job. Please try again.");
-      await refreshStatus();
-    }
-  } finally {
-    setApplying(false);
-  }
+    if (status === 401 || status === 403) alert("Please log in as a Job Seeker to apply.");
+    else { alert(msg || "Couldn't apply to this job."); await refreshStatus(); }
+  } finally { setApplying(false); }
 }
+
 
 
   const salaryText =

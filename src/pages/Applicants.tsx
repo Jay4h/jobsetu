@@ -48,6 +48,7 @@ export default function Applicants() {
   // filters
   const [minExp, setMinExp] = useState<number | "">("");
   const [skill, setSkill] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   // modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -296,14 +297,14 @@ export default function Applicants() {
         prev.map((r) =>
           r.applicationId === a.applicationId
             ? {
-                ...r,
-                seeker: {
-                  ...r.seeker,
-                  resume: data.FilePath ?? r.seeker.resume,
-                  resumeViewCount: data.viewCount ?? r.seeker.resumeViewCount,
-                  resumeLastViewedBy: data.lastViewedBy ?? r.seeker.resumeLastViewedBy,
-                },
-              }
+              ...r,
+              seeker: {
+                ...r.seeker,
+                resume: data.FilePath ?? r.seeker.resume,
+                resumeViewCount: data.viewCount ?? r.seeker.resumeViewCount,
+                resumeLastViewedBy: data.lastViewedBy ?? r.seeker.resumeLastViewedBy,
+              },
+            }
             : r
         )
       );
@@ -320,18 +321,21 @@ export default function Applicants() {
     const m = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(h);
     return m ? decodeURIComponent(m[1]) : null;
   }
-
-  const exportCsv = async () => {
-    if (!jobId) return;
+  // add next to exportCsv
+  const exportXlsx = async () => {
+    if (!jobId || exporting) return;
     try {
+      setExporting(true);
       const res = await api.get(`/api/recruiter/export-applicants/${jobId}`, {
         responseType: "blob",
       });
+
       const dispo =
         (res as any).headers?.["content-disposition"] ??
         (res as any).headers?.get?.("content-disposition");
       const suggested = getFilenameFromDisposition(dispo);
       const filename = suggested || `applicants_job_${jobId}.xlsx`;
+
       const blob = new Blob([res.data], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
@@ -342,13 +346,23 @@ export default function Applicants() {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (e: any) {
-      toast.error(
-        e?.response?.data?.message || e?.message || "Could not export applicants."
-      );
+      let message = e?.message || "Could not export applicants.";
+      try {
+        const resp = e?.response;
+        if (resp?.data instanceof Blob) {
+          const text = await resp.data.text();
+          const j = JSON.parse(text);
+          message = j?.message || j?.error || message; // server sends { message, error }
+        }
+      } catch { }
+      toast.error(message);
+    } finally {
+      setExporting(false);
     }
   };
+
 
   const applKey = (a: ApplicantRow, i: number) =>
     a.applicationId ?? `${a.seeker.email}-${i}`;
@@ -402,9 +416,10 @@ export default function Applicants() {
           <button onClick={clearFilter} className="rounded border px-3 py-2 hover:bg-gray-50">
             Clear
           </button>
-          <button onClick={exportCsv} className="rounded border px-3 py-2 hover:bg-gray-50">
-            Export CSV
+          <button onClick={exportXlsx} disabled={exporting} className="rounded border px-3 py-2 hover:bg-gray-50">
+            {exporting ? "Exporting…" : "Export Excel"}
           </button>
+
         </div>
       </div>
 
@@ -557,9 +572,8 @@ export default function Applicants() {
                 Cancel
               </button>
               <button
-                className={`px-4 py-2 rounded ${
-                  saving ? "bg-gray-400 text-white" : "bg-blue-600 text-white hover:bg-blue-700"
-                }`}
+                className={`px-4 py-2 rounded ${saving ? "bg-gray-400 text-white" : "bg-blue-600 text-white hover:bg-blue-700"
+                  }`}
                 onClick={confirmStatusChange}
                 disabled={saving}
               >
