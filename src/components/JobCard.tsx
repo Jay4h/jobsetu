@@ -51,18 +51,6 @@ export default function JobCard(props: JobCardProps) {
     });
   }, []);
 
-  /** Try sending raw number first, then { jobId } if API expects JSON object */
-  async function postWithId(url: string, id: number) {
-    try {
-      return await api.post(url, id, { headers: { "Content-Type": "application/json" } });
-    } catch (e: any) {
-      // e is normalized by the interceptor: { status, message, data }
-      if ([400, 415, 422].includes(Number(e?.status))) {
-        return await api.post(url, { jobId: id });
-      }
-      throw e;
-    }
-  }
  
 
 
@@ -99,20 +87,6 @@ export default function JobCard(props: JobCardProps) {
     } catch { }
   }
 
-  async function refreshStatusAndInfer(): Promise<"applied" | "saved" | "unknown"> {
-    try {
-      const { data } = await api.get(`/api/jobs/${jobId}`);
-      if (typeof data?.isApplied === "boolean" && data.isApplied) {
-        setApplied(true);
-        return "applied";
-      }
-      if (typeof data?.isSaved === "boolean" && data.isSaved) {
-        setSaved(true);
-        return "saved";
-      }
-    } catch { }
-    return "unknown";
-  }
 
   // 🔄 NEW: always sync real status from server when authed and when jobId changes
   useEffect(() => {
@@ -182,18 +156,18 @@ async function handleApply() {
       : null;
 
   return (
-    <div className="card card-hover p-4 h-full flex flex-col">
+    <div className="card card-hover p-6 h-full flex flex-col">
       {/* HEADER */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex gap-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex gap-4">
           <img
             src={company?.logoUrl || "/logo-placeholder.png"}
             alt={company?.name || "Company"}
-            className="w-10 h-10 rounded bg-gray-100 object-cover"
+            className="w-12 h-12 rounded-lg bg-gray-100 object-cover shadow-sm"
           />
-          <div>
-            <div className="font-medium leading-tight">{title}</div>
-            <div className="text-xs text-gray-500">
+          <div className="flex-1">
+            <div className="font-bold text-lg leading-tight text-gray-900 mb-1">{title}</div>
+            <div className="text-sm text-gray-600">
               {company?.name ? `${company.name} · ` : ""}{location || "—"}
             </div>
           </div>
@@ -202,12 +176,12 @@ async function handleApply() {
         {/* status pills only when logged in */}
         <div className="flex gap-2 shrink-0">
           {authed && applied && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-green-50 text-green-700 ring-1 ring-green-200" title="You already applied to this job">
-              <span>✓</span> <span>Already applied</span>
+            <span className="badge badge-success" title="You already applied to this job">
+              <span>✓</span> <span>Applied</span>
             </span>
           )}
           {authed && !applied && saved && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-200" title="This job is in your saved list">
+            <span className="badge badge-primary" title="This job is in your saved list">
               <span>★</span> <span>Saved</span>
             </span>
           )}
@@ -215,29 +189,29 @@ async function handleApply() {
       </div>
 
       {/* TAGS + SALARY */}
-      <div className="mt-2">
-        <div className="flex flex-wrap gap-2 min-h-[28px]">
-          {isUrgent && <span className="chip">Urgent</span>}
-          {isRemote && <span className="chip">Remote</span>}
+      <div className="mt-4">
+        <div className="flex flex-wrap gap-2 min-h-[32px]">
+          {isUrgent && <span className="badge badge-accent">Urgent</span>}
+          {isRemote && <span className="badge badge-primary">Remote</span>}
           {experienceRequired != null && <span className="chip">{experienceRequired}+ yrs</span>}
           {tags.slice(0, 6).map((t) => (
             <span key={t} className="chip">{t}</span>
           ))}
         </div>
-        {salaryText && <div className="mt-2 text-sm text-gray-700">{salaryText}</div>}
+        {salaryText && <div className="mt-3 text-sm font-semibold text-gray-800">{salaryText}</div>}
       </div>
 
       {/* ACTIONS */}
-      <div className="mt-auto pt-3 flex gap-2">
+      <div className="mt-auto pt-4 flex gap-3">
         <button
-          className="btn btn-primary"
+          className="btn btn-primary flex-1"
           disabled={applied || applying}              // was: !authed || applied || applying
           onClick={handleApply}
           title={
             !authed
               ? "Login to apply"
               : role === "Recruiter"
-                ? "Recruiters can’t apply"
+                ? "Recruiters can't apply"
                 : applied
                   ? "You have already applied"
                   : "Apply to this job"
@@ -253,11 +227,14 @@ async function handleApply() {
             !authed
               ? "Login to save"
               : role === "Recruiter"
-                ? "Recruiters can’t save jobs"
+                ? "Recruiters can't save jobs"
                 : applied
                   ? "Already saved"
                   : "Save this job"
           }        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+          </svg>
           {saved ? "Saved" : saving ? "Saving…" : "Save"}
         </button>
       </div>

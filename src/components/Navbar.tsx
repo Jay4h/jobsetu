@@ -187,10 +187,10 @@ export default function Navbar() {
 
   return (
     <>
-      <nav className="w-full bg-white/90 backdrop-blur border-b sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 lg:px-6 h-14 flex items-center justify-between">
+      <nav className="w-full bg-white/95 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-40 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 lg:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-5">
-            <Link to="/" className="font-semibold text-lg" aria-label="JobSetu Home">
+            <Link to="/" className="font-bold text-xl text-gradient-blue" aria-label="JobSetu Home">
               JobSetu
             </Link>
             <div className="flex items-center gap-6">
@@ -257,33 +257,39 @@ export default function Navbar() {
             ) : (
               <>
                 <button
-                  className="h-9 px-2 rounded-xl border border-gray-300 inline-flex items-center gap-2"
+                  className="h-10 px-3 rounded-xl border border-gray-300 inline-flex items-center gap-3 hover:bg-gray-50 transition-colors"
                   onClick={() => setMenuOpen((s) => !s)}
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                 >
-                  <span className="h-7 w-7 rounded-full bg-gray-900 text-white grid place-items-center text-xs font-semibold">
+                  <span className="h-8 w-8 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 text-white grid place-items-center text-sm font-semibold shadow-md">
                     {initials}
                   </span>
-                  <span className="hidden sm:inline text-sm">{user.fullName}</span>
+                  <span className="hidden sm:inline text-sm font-medium">{user.fullName}</span>
+                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                   <span className="sr-only">Open profile menu</span>
                 </button>
 
                 {menuOpen && (
-                  <div role="menu" className="absolute right-0 top-12 w-56 bg-white border rounded-xl shadow-lg overflow-hidden">
-                    <div className="px-3 py-2 text-xs text-gray-500">
+                  <div role="menu" className="absolute right-0 top-14 w-64 bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden backdrop-blur-md">
+                    <div className="px-4 py-3 text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
                       {user.role ? `Role: ${user.role}` : "Signed in"}
                     </div>
 
                     <button
                       role="menuitem"
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                      className="w-full text-left px-4 py-3 text-sm hover:bg-gray-50 transition-colors flex items-center gap-3"
                       onClick={() => {
                         setMenuOpen(false);
                         if (user.role === "Recruiter") nav("/recruiter/profile");
                         else nav("/profile");
                       }}
                     >
+                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
                       Profile
                     </button>
 

@@ -351,10 +351,18 @@ const handleApply = async (jobId: number) => {
 function EmptyState() {
   return (
     <div className="col-span-full text-center py-16">
-      <div className="text-lg font-medium">No jobs found</div>
-      <p className="text-gray-600 text-sm mt-1">
-        Try changing filters or searching a different keyword.
-      </p>
+      <div className="flex flex-col items-center">
+        <dotlottie-wc 
+          src="https://lottie.host/e3621a8e-73dc-4534-951e-092fe183b539/lA1exebHPM.lottie" 
+          style={{width: '300px', height: '300px'}} 
+          autoplay 
+          loop
+        ></dotlottie-wc>
+        <div className="text-lg font-medium mt-4">No jobs found</div>
+        <p className="text-gray-600 text-sm mt-1">
+          Try changing filters or searching a different keyword.
+        </p>
+      </div>
     </div>
   );
 }

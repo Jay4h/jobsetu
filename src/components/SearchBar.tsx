@@ -81,8 +81,8 @@ export default function SearchBar({
   const pills = ["React developer", "Node.js", "C# .NET", "Data Analyst"];
 
   return (
-    <form onSubmit={handleSubmit} className="mt-6 p-2 glass rounded-2xl shadow-soft">
-      <div className="flex gap-2 items-stretch" ref={wrapRef}>
+    <form onSubmit={handleSubmit} className="mt-6 p-3 glass rounded-2xl shadow-soft">
+      <div className="flex gap-3 items-stretch" ref={wrapRef}>
         {/* keyword with suggestions */}
         <div className="relative flex-1">
           <input
@@ -99,13 +99,13 @@ export default function SearchBar({
             onKeyDown={onKeyDown}
           />
           {open && filtered.length > 0 && (
-            <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+            <div className="absolute z-30 mt-2 w-full bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden backdrop-blur-md">
               {filtered.map((s, i) => (
                 <button
                   type="button"
                   key={s}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
-                    i === active ? "bg-gray-100" : ""
+                  className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 transition-colors ${
+                    i === active ? "bg-primary-50 text-primary-700" : ""
                   }`}
                   onMouseEnter={() => setActive(i)}
                   onMouseDown={(e) => e.preventDefault()}
@@ -125,14 +125,14 @@ export default function SearchBar({
       </div>
 
       {/* quick suggestion pills */}
-      <div className="flex flex-wrap gap-2 mt-2">
+      <div className="flex flex-wrap gap-2 mt-3">
         {pills.map((p) => (
           <button
             key={p}
             type="button"
-            className="badge hover:bg-gray-100"
+            className="badge badge-primary hover:bg-primary-200 transition-colors"
             onClick={() => setQ(p)}
-            title={`Use “${p}”`}
+            title={`Use "${p}"`}
           >
             {p}
           </button>
