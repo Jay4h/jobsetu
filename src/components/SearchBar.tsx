@@ -141,3 +141,8 @@ export default function SearchBar({
     </form>
   );
 }
+
+export { SearchBar };
+
+
+

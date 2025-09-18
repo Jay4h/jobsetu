@@ -1,7 +1,7 @@
 // Home.tsx
 import { Link } from "react-router-dom";
 import Reveal from "../components/Reveal";
-import { default as SearchBar } from "../components/SearchBar";
+import SearchBar from "../components/SearchBar";
 
 /* ---------- Enhanced component helpers ---------- */
 function Stat({ value, label }: { value: string; label: string }) {
@@ -88,15 +88,15 @@ function TestimonialCard({ testimonial, index }: { testimonial: any; index: numb
 
 export default function Home() {
   const featuredJobs = [
-    { title: "React Frontend Engineer", company: "Acme Corp", location: "Ahmedabad • Hybrid", tags: ["React", "TypeScript", "Tailwind"], salary: "₹8–14 LPA", isUrgent: true },
-    { title: "C# .NET API Developer", company: "Krypton", location: "Surat • On-site", tags: ["C#", ".NET", "SQL"], salary: "₹10–16 LPA", isUrgent: false },
-    { title: "Data Analyst", company: "Futura", location: "Remote", tags: ["Python", "SQL", "PowerBI"], salary: "₹7–12 LPA", isUrgent: false },
+    {title:"React Frontend Engineer", company:"Acme Corp", location:"Ahmedabad • Hybrid", tags:["React","TypeScript","Tailwind"], salary:"₹8–14 LPA", isUrgent: true},
+    {title:"C# .NET API Developer", company:"Krypton", location:"Surat • On-site", tags:["C#",".NET","SQL"], salary:"₹10–16 LPA", isUrgent: false},
+    {title:"Data Analyst", company:"Futura", location:"Remote", tags:["Python","SQL","PowerBI"], salary:"₹7–12 LPA", isUrgent: false},
   ];
 
   const testimonials = [
-    { quote: "Got interviews within 48 hours. The AI matching felt incredibly accurate and saved me weeks of searching.", author: "Priya S., Frontend Developer" },
-    { quote: "The resume parsing technology nailed my skills perfectly, and the fit score explained exactly why each role matched.", author: "Nikhil K., Data Analyst" },
-    { quote: "Real-time chat with recruiters eliminated all the back-and-forth emails. I landed my dream job in 10 days.", author: "Aisha M., .NET Engineer" },
+    {quote:"Got interviews within 48 hours. The AI matching felt incredibly accurate and saved me weeks of searching.", author:"Priya S., Frontend Developer"},
+    {quote:"The resume parsing technology nailed my skills perfectly, and the fit score explained exactly why each role matched.", author:"Nikhil K., Data Analyst"},
+    {quote:"Real-time chat with recruiters eliminated all the back-and-forth emails. I landed my dream job in 10 days.", author:"Aisha M., .NET Engineer"},
   ];
 
   return (
@@ -123,7 +123,7 @@ export default function Home() {
 
             <Reveal delay={160}>
               <p className="text-xl text-gray-600 max-w-2xl mb-8 leading-relaxed">
-                Apply from anywhere today. Work globally. Connect with opportunities that match your skills
+                Apply from anywhere today. Work globally. Connect with opportunities that match your skills 
                 through our AI-powered job portal designed for the modern workforce.
               </p>
             </Reveal>
@@ -169,33 +169,33 @@ export default function Home() {
 
           {/* Right Column - Feature Cards */}
           <div className="lg:col-span-5 space-y-6">
-            <FeatureCard
-              title="Smart Matching"
-              desc="Our AI analyzes your skills, experience, and preferences to surface roles that truly fit your profile."
+            <FeatureCard 
+              title="Smart Matching" 
+              desc="Our AI analyzes your skills, experience, and preferences to surface roles that truly fit your profile." 
               icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
             />
-            <FeatureCard
-              delay={80}
-              title="Resume Insights"
-              desc="Get detailed scoring, personalized suggestions, and tailored content for every application."
+            <FeatureCard 
+              delay={80} 
+              title="Resume Insights" 
+              desc="Get detailed scoring, personalized suggestions, and tailored content for every application." 
               icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
             />
-            <FeatureCard
-              delay={160}
-              title="Real-time Chat"
-              desc="Connect instantly with recruiters through our integrated messaging system with read receipts."
+            <FeatureCard 
+              delay={160} 
+              title="Real-time Chat" 
+              desc="Connect instantly with recruiters through our integrated messaging system with read receipts." 
               icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
             />
-            <FeatureCard
-              delay={240}
-              title="Recruiter Tools"
-              desc="Advanced analytics, bulk operations, and powerful candidate filtering for hiring teams."
+            <FeatureCard 
+              delay={240} 
+              title="Recruiter Tools" 
+              desc="Advanced analytics, bulk operations, and powerful candidate filtering for hiring teams." 
               icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
             />
           </div>
         </div>
 
-        {/* HOW IT WORKS - Enhanced Section */}
+      {/* HOW IT WORKS - Enhanced Section */}
         <Reveal>
           <section className="mt-20">
             <div className="text-center mb-12">
@@ -267,7 +267,7 @@ export default function Home() {
               <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Trusted by Industry Leaders</p>
               <div className="flex flex-wrap items-center justify-center gap-8 lg:gap-12 opacity-60">
                 {/* Company logos placeholder - you can replace with actual logos */}
-                {Array.from({ length: 6 }).map((_, i) => (
+                {Array.from({length: 6}).map((_, i) => (
                   <div key={i} className="w-24 h-12 bg-gray-200 rounded-lg shimmer flex items-center justify-center">
                     <span className="text-xs text-gray-400 font-medium">Company {i + 1}</span>
                   </div>
@@ -318,6 +318,68 @@ export default function Home() {
             </div>
           </section>
         </Reveal>
+      </div>
+    </div>
+  );
+}
+
+      {/* FEATURED JOBS */}
+      <Reveal>
+        <section className="mt-14">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Featured Jobs</h2>
+            <Link to="/jobs" className="text-sm text-gray-700 hover:text-gray-900">See all</Link>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[
+              {title:"React Frontend Engineer", company:"Acme Corp", location:"Ahmedabad · Hybrid", tags:["React","TypeScript","Tailwind"], salary:"₹8–14 LPA"},
+              {title:"C# .NET API Developer", company:"Krypton", location:"Surat · On-site", tags:["C#",".NET","SQL"], salary:"₹10–16 LPA"},
+              {title:"Data Analyst", company:"Futura", location:"Remote", tags:["Python","SQL","PowerBI"], salary:"₹7–12 LPA"},
+            ].map((j, i)=>(
+              <div key={i} className="card card-hover p-4 group">
+                <div className="font-medium">{j.title}</div>
+                <div className="text-sm text-gray-600 mt-0.5">{j.company} · {j.location}</div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {j.tags.map(t=> <span key={t} className="badge">{t}</span>)}
+                </div>
+                <div className="mt-3 text-sm text-gray-700">Salary: {j.salary}</div>
+                <div className="mt-3 flex gap-2">
+                  <button className="btn btn-primary">Apply</button>
+                  <button className="btn btn-ghost">Save</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </Reveal>
+
+      {/* TESTIMONIALS */}
+      <Reveal>
+        <section className="mt-14 grid md:grid-cols-3 gap-4">
+          {[
+            {q:"“Got interviews within 48 hours. Matching felt spot on.”", a:"— Priya, Frontend Dev"},
+            {q:"“Parsing nailed my skills and the fit score explained why.”", a:"— Nikhil, Data Analyst"},
+            {q:"“Chat with recruiters saved days of back-and-forth.”", a:"— Aisha, .NET Engineer"},
+          ].map((t,i)=>(
+            <div key={i} className="card card-hover p-4 float-soft">
+              <p className="text-sm">{t.q}</p>
+              <p className="text-xs text-gray-500 mt-2">{t.a}</p>
+            </div>
+          ))}
+        </section>
+      </Reveal>
+
+      {/* CTA */}
+      <Reveal>
+        <section className="mt-16 card p-6 text-center">
+          <h3 className="text-lg font-semibold">Ready to explore?</h3>
+          <p className="text-sm text-gray-600 mt-1">Find roles that match your skills right now.</p>
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <Link to="/jobs" className="btn btn-primary">Browse Jobs</Link>
+            <Link to="/companies" className="btn btn-ghost">Explore Companies</Link>
+          </div>
+        </section>
+      </Reveal>
       </div>
     </div>
   );

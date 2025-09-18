@@ -15,7 +15,7 @@ export default function CompanyCard({
   companyId, name, logoUrl, industry, type, description,
 }: CompanyCardProps) {
   return (
-    <div className="card p-4 h-full flex flex-col">
+    <div className="card card-hover p-4 h-full flex flex-col">
       <div className="flex items-start gap-3">
         <img
           src={logoUrl || "/logo-placeholder.png"}

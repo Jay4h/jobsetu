@@ -182,7 +182,7 @@ async function handleApply() {
       : null;
 
   return (
-    <div className="card p-4 h-full flex flex-col">
+    <div className="card card-hover p-4 h-full flex flex-col">
       {/* HEADER */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex gap-3">
@@ -280,3 +280,4 @@ export function JobCardSkeleton() {
     </div>
   );
 }
+
